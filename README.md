@@ -69,8 +69,3 @@ agentic-debt-collection/
 4. Variável recomendada: `OPENROUTER_API_KEY`
 
 Health check após deploy: `https://<seu-deploy>.vercel.app/api/healthz`
-
-## Referências
-
-- [Harness Engineering — OpenAI](https://openai.com/pt-BR/index/harness-engineering/)
-- [Collections Engineer — Monest](https://monest.com.br/collections)
