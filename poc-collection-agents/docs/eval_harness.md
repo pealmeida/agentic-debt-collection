@@ -47,6 +47,44 @@ Ainda sem runner automatizado. Para validar:
 
 ---
 
+## Runner automatizado multi-profile — `npm run eval:journey`
+
+`scripts/journey-eval.mjs` exercita o pipeline real (NLU → Motor → Empatia → Guardião)
+contra a OpenRouter para **cada `model_profile`** definido no YAML, usando o
+`MOCK_CRM_CASE` de `src/constants.js` como contexto de dívida.
+
+```bash
+# Todos os profiles (gemini-flash-lite, openai-blend, claude-haiku, openrouter-specialist)
+npm run eval:journey
+
+# Apenas um profile específico (mais barato pra A/B rápido)
+npm run eval:journey gemini-flash-lite
+npm run eval:journey openai-blend openrouter-specialist
+```
+
+O runner imprime, por turno:
+- Modelo + estratégia JSON usados em cada agente
+- Latência, tokens e custo USD
+- Quantas self-corrections o Guardião disparou
+- Proposta final (com check matemático contra `calculateAmortization`)
+- Preview da resposta + checagem de `forbidden_in_output`
+
+Use isso para validar antes de trocar `OPENROUTER_MODEL_PROFILE` em produção.
+
+**Observações de profiles** (medidas em runs reais — podem variar com fila da OR):
+
+| Profile | Custo/turno | Latência total | Notas |
+|---------|-------------|----------------|-------|
+| **`balanced-cost`** ★ | **~$0.0004** | **~4-6s** happy / ~7-11s threat | Production default — Gemini Flash Lite (NLU + Empatia) + Mistral Small (Motor + Guardião) + **risk-tiered L3 fast-path no Guardião**. Vendor diversity preservada. |
+| `gemini-flash-lite` | ~$0.0004 | ~5s | Single-vendor (sem diversidade), todos os agentes em Gemini Flash Lite |
+| `openai-blend` | ~$0.004 | ~10s | Self-correction estável, custo alto no GPT-4o |
+| `claude-haiku` | ~$0.005 | ~15s | Resposta verbosa, custo médio |
+| `openrouter-specialist` | ~$0.005 | 20-35s | 4 vendors, **DeepSeek Motor pode estourar 30s** — risco de timeout no `maxDuration` do Vercel. Só use em ambientes sem timeout agressivo. |
+
+Para a análise profunda das decisões por trás de `balanced-cost` (escolha de modelo por agente, fast-path do Guardião, cap de tokens do Empatia, tradeoffs aceitos), veja [`docs/performance.md`](performance.md).
+
+---
+
 ## Como interpretar falhas
 
 | Falha | Causa provável | Fix |

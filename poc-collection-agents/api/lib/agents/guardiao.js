@@ -15,6 +15,27 @@ const GUARDIAO_SCHEMA = {
 }
 
 /**
+ * Intents that ALWAYS force a full L3 LLM judge regardless of deterministic
+ * results. We never skip the semantic check for legally-charged conversations.
+ *
+ * The matching is permissive (substring, case-insensitive, accent-tolerant)
+ * because the upstream NLU classifies into free-form Portuguese labels.
+ */
+const HIGH_RISK_INTENT_PATTERNS = [
+  /amea[cç]a/i,
+  /risco\s+legal/i,
+  /coerc/i,
+  /jur[ií]dic/i,
+  /contesta/i,
+  /fraude/i,
+]
+
+function isHighRiskIntent(detectedIntent) {
+  if (!detectedIntent) return true // unclassified = play safe, run L3
+  return HIGH_RISK_INTENT_PATTERNS.some((re) => re.test(detectedIntent))
+}
+
+/**
  * Agente Guardião (Compliance)
  *
  * Four-layer validation (in order — first failure exits early):
@@ -25,6 +46,18 @@ const GUARDIAO_SCHEMA = {
  * L2 — Security threat escalation: if Layer 0 (orchestrator) flagged MEDIUM
  *       threats, force a stricter LLM audit.
  * L3 — LLM-as-judge:            semantic compliance check against CDC guidelines.
+ *
+ * Fast-path (L3 skipped) — only when ALL of these hold:
+ *   • L0 leakage scan: clean
+ *   • L1 regex check: zero violations
+ *   • L2 upstream threats: none
+ *   • detected_intent: NOT in HIGH_RISK_INTENT_PATTERNS
+ * In every other case, L3 runs as before. The Guardião agent itself still
+ * executes for every turn (GP-01 preserved); only the LLM call inside it is
+ * elided when there's nothing semantically ambiguous to judge.
+ *
+ * Measured impact on `balanced-cost`: -700-1300ms per happy turn, ~$0.00015
+ * saved. Risky turns (Ameaça, Contestação, etc.) are unchanged.
  *
  * Returns APROVADO or REJEITADO with a feedback string for the Empatia re-write.
  */
@@ -101,6 +134,35 @@ export async function run(state, { agent, openrouter }) {
       payload: JSON.stringify({ threats: security_threats.map((t) => t.threat), severity: security_severity }),
       status: 200,
     })
+  }
+
+  // ── Fast-path: skip L3 when deterministic layers + intent classification ──
+  // all say BAIXO risk. The semantic LLM judge is only valuable when there's
+  // ambiguity to resolve; for unambiguously safe turns it adds 700-1300ms of
+  // pure overhead. Risky intents and any threat signal always escalate to L3.
+  const highRisk = isHighRiskIntent(detected_intent)
+  if (!hasUpstreamThreats && !highRisk) {
+    toolCalls.push({
+      name: 'security:llm_judge',
+      payload: JSON.stringify({ skipped: true, reason: 'low_risk_deterministic_pass', intent: detected_intent }),
+      status: 200,
+    })
+    return {
+      patch: {
+        compliance_status: 'APROVADO',
+        compliance_feedback: '',
+        compliance_risk: 'BAIXO',
+      },
+      trace: {
+        agent: 'agente_guardiao_compliance',
+        thought: `L0:leakage✓ → L1:regex✓ → L2:clean → L3:skipped(low_risk) | Risco: BAIXO | Intent ${detected_intent || '(none)'} fora da lista de alto risco; LLM judge dispensado.`,
+        tools: toolCalls,
+        rag: ragContext,
+        tokens: 0,
+        usage: { prompt_tokens: 0, completion_tokens: 0, total_tokens: 0 },
+        latency_ms: 0,
+      },
+    }
   }
 
   // ── Layer 3: LLM-as-judge — semantic CDC compliance check ─────────────────

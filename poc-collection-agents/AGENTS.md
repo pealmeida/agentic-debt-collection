@@ -104,5 +104,6 @@ O Guardião é **sempre o último nó**. Nenhuma resposta chega ao usuário sem 
 - [Arquitetura](docs/arquitetura_poc.md)
 - [Princípios de ouro](docs/golden_principles.md)
 - [Como rodar evals](docs/eval_harness.md)
+- [**Performance — análise cost/speed e decisões arquiteturais**](docs/performance.md) — leitura obrigatória antes de mexer em models/profiles/Guardião
 - [Harness Engineering (OpenAI)](https://openai.com/pt-BR/index/harness-engineering/) — inspiração da estrutura
 - [Collections Engineer (Monest)](https://monest.com.br/collections) — inspiração da persona operador

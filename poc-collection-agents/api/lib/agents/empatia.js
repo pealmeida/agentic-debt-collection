@@ -1,6 +1,27 @@
 import { callOpenRouter } from '../openrouter.js'
 
 /**
+ * Hard cap on Empatia's draft length.
+ *
+ * Empatia is the only free-text agent (json_strategy: text). Without a schema
+ * to bound the output, chatty models (observed: Qwen 3.6 Flash → 3000+ tokens)
+ * will produce walls of text that:
+ *   - Hurt UX (a WhatsApp reply should be 3 short paragraphs, ~150 tokens).
+ *   - Inflate latency past Vercel's 30s maxDuration in api/orchestrate.js.
+ *   - Multiply per-turn cost on premium models.
+ *
+ * Measured real outputs across all profiles:
+ *   - CUSTOMER reply: ~120-180 completion tokens
+ *   - AGENT bullet list: ~180-280 completion tokens
+ *
+ * Cap at 400 → ~30% latency headroom over the longest observed reply, but
+ * still kills runaway generation. Decode latency is linear in output length,
+ * so the lower cap directly reduces wall-clock time. Override per-agent via
+ * `agent.max_tokens` in the YAML if a profile needs more breathing room.
+ */
+const EMPATIA_MAX_TOKENS = 400
+
+/**
  * Agente Empatia (Copywriter)
  * Translates the motor's mathematical output into human-readable text.
  * Adapts format and tone based on user_role (CUSTOMER = WhatsApp empático,
@@ -53,6 +74,7 @@ export async function run(state, { agent, openrouter }) {
     ],
     jsonStrategy: agent.json_strategy || 'text',
     promptHints: agent.prompt_hints,
+    maxTokens: agent.max_tokens ?? EMPATIA_MAX_TOKENS,
     apiKey: openrouter.apiKey,
     baseUrl: openrouter.baseUrl,
   })

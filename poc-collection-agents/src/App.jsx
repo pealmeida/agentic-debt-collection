@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef, useCallback } from 'react'
-import { Bot, Menu, Send, Sparkles, Cpu } from 'lucide-react'
+import { Bot, Menu, Send, Sparkles } from 'lucide-react'
 
 import { MODES, SUGGESTIONS, INITIAL_AGENT_STATE } from './constants.js'
 import { getOrCreateSessionId, downloadJSON } from './utils.js'
@@ -8,6 +8,7 @@ import { applyPipelineEvent } from './services/pipeline-events.js'
 
 import { ModeSwitchBar } from './components/ModeSwitchBar.jsx'
 import { PipelineMiniBar } from './components/PipelineMiniBar.jsx'
+import { ProgressIndicator } from './components/ProgressIndicator.jsx'
 import { SidebarPanel } from './components/SidebarPanel.jsx'
 import { ChatMessage } from './components/ChatMessage.jsx'
 
@@ -232,19 +233,7 @@ export default function App() {
               />
             ))}
 
-            {isProcessing && (
-              <div className="flex items-start gap-3" aria-busy="true" aria-label="Processando resposta">
-                <div className={`w-8 h-8 rounded-full flex items-center justify-center shrink-0 mt-0.5 ${modeCfg.avatarBg}`}>
-                  <Cpu size={15} className="motion-reduce:animate-none animate-pulse" />
-                </div>
-                <div className="bg-white border border-slate-200 px-4 py-3 rounded-2xl rounded-tl-sm text-sm text-slate-500 flex flex-col gap-2.5 min-w-[200px] shadow-sm">
-                  <span className="text-xs font-semibold text-slate-500">Orquestrando Multiagentes...</span>
-                  <div className="h-1 w-full bg-slate-100 rounded-full overflow-hidden">
-                    <div className="h-full w-1/3 bg-brand-500 rounded-full motion-reduce:animate-none animate-[pulse_1s_ease-in-out_infinite]" />
-                  </div>
-                </div>
-              </div>
-            )}
+            {isProcessing && <ProgressIndicator agentState={agentState} modeCfg={modeCfg} />}
           </div>
 
           {/* Input area */}

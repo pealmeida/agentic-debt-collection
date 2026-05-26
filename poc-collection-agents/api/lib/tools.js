@@ -58,6 +58,11 @@ export function calculateAmortization({ principal, discount, installments = 1 })
   const discountedTotal = Math.round(principal * (1 - discount) * 100) / 100
   const installmentValue = Math.round((discountedTotal / installments) * 100) / 100
 
+  // NOTE: emit the label under `desconto` (not `desconto_label`).
+  // The Motor schema, the UI (`SidebarPanel.jsx`), the trace log, and the
+  // fallback scenarios all consume `proposal.desconto`. When the LLM omits
+  // that field (json_object mode is best-effort on small models), this is
+  // the only place it's authoritatively populated by the safety re-compute.
   return {
     result: {
       original: principal,
@@ -65,7 +70,7 @@ export function calculateAmortization({ principal, discount, installments = 1 })
       total: discountedTotal,
       installments,
       installment_value: installmentValue,
-      desconto_label: `${Math.round(discount * 100)}%`,
+      desconto: `${Math.round(discount * 100)}%`,
     },
     source: 'skill:calculate_amortization',
     snippet: `Principal R$ ${principal} × (1 - ${discount}) = R$ ${discountedTotal} em ${installments}x de R$ ${installmentValue}.`,

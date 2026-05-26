@@ -17,6 +17,9 @@ const OPENROUTER_BASE = 'https://openrouter.ai/api/v1'
  * @param {string} [opts.schemaName]   - Optional name for json_schema strict mode.
  * @param {('schema_strict'|'json_object'|'prompted_json'|'text')} [opts.jsonStrategy='schema_strict']
  * @param {('openai_strict'|'strict_json'|'gemini_flash'|'claude_xml'|null)} [opts.promptHints]
+ * @param {number} [opts.maxTokens]    - Hard cap on completion tokens. Critical for text agents
+ *                                       (e.g. Empatia) to prevent runaway verbosity from chatty
+ *                                       models that would otherwise blow past Vercel maxDuration.
  * @param {string} opts.apiKey         - OpenRouter API key.
  * @param {string} [opts.baseUrl]      - Override base URL.
  * @returns {{ content: string, usage: object, latencyMs: number, model: string }}
@@ -30,6 +33,7 @@ export async function callOpenRouter({
   schemaName = 'agent_output',
   jsonStrategy = 'schema_strict',
   promptHints = 'openai_strict',
+  maxTokens,
   apiKey,
   baseUrl = OPENROUTER_BASE,
 }) {
@@ -44,6 +48,7 @@ export async function callOpenRouter({
     messages: [{ role: 'system', content: decoratedSystem }, ...messages],
   }
   if (responseFormat) body.response_format = responseFormat
+  if (Number.isFinite(maxTokens) && maxTokens > 0) body.max_tokens = Math.floor(maxTokens)
 
   const res = await fetch(`${baseUrl}/chat/completions`, {
     method: 'POST',

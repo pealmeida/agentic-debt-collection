@@ -15,6 +15,8 @@ import {
 import { getDebtStatus, getDiscountPolicy, calculateAmortization, checkGuardrailViolations } from '../api/lib/tools.js'
 import { buildResponseFormat, applyPromptHints, parseJSON } from '../api/lib/openrouter.js'
 import { detectScenario, buildScenarioOutput, simAgentMetrics } from '../src/services/fallback-scenarios.js'
+import { MOCK_CRM_CASE, INITIAL_AGENT_STATE } from '../src/constants.js'
+import * as guardiao from '../api/lib/agents/guardiao.js'
 
 let passed = 0
 let failed = 0
@@ -209,7 +211,7 @@ assert('policy has correct source', policy.source === 'urn:mcp:vector-store:poli
 const amort = calculateAmortization({ principal: 1200, discount: 0.3, installments: 3 })
 assert('amortization total = 840', amort.result.total === 840)
 assert('amortization installment = 280', amort.result.installment_value === 280)
-assert('amortization rounds correctly', amort.result.desconto_label === '30%')
+assert('amortization rounds correctly', amort.result.desconto === '30%')
 
 const violations = checkGuardrailViolations('Vamos sujar nome se não pagar')
 assert('regex catches "sujar nome"', violations.length > 0)
@@ -232,6 +234,13 @@ assert('50% discount divides installments', halfDiscount.result.installment_valu
 // Floating point hardening: 0.1 + 0.2 problem
 const trickyDiscount = calculateAmortization({ principal: 100, discount: 0.3, installments: 3 })
 assert('rounding produces clean cents', Number.isInteger(trickyDiscount.result.installment_value * 100))
+
+// Regression: when the LLM omits `desconto` in its JSON output, the post-clamp
+// merge in motor.js must still populate it from calculateAmortization. Spread
+// order is `{ ...llm_proposal, ...amortResult.result }`, so amortResult MUST
+// own the `desconto` key.
+const merged = { discount_rate: 0.3, installments: 3, ...amort.result }
+assert('post-clamp merge populates desconto when LLM omits it', merged.desconto === '30%')
 
 // ─── Fallback Scenarios ──────────────────────────────────────────────────────
 
@@ -291,6 +300,10 @@ section('Profiles: catalog + active resolution')
 const profiles = listProfiles()
 assert('listProfiles returns >= 2 entries', profiles.length >= 2)
 assert(
+  'balanced-cost is registered',
+  profiles.some((p) => p.id === 'balanced-cost'),
+)
+assert(
   'openrouter-specialist is registered',
   profiles.some((p) => p.id === 'openrouter-specialist'),
 )
@@ -303,7 +316,7 @@ assert(
 delete process.env.OPENROUTER_MODEL_PROFILE
 delete process.env.OPENROUTER_DEFAULT_MODEL
 const defaultProfileId = getActiveProfileId()
-assert('default active profile is openrouter-specialist', defaultProfileId === 'openrouter-specialist')
+assert('default active profile is balanced-cost', defaultProfileId === 'balanced-cost')
 
 process.env.OPENROUTER_MODEL_PROFILE = 'openai-blend'
 assert('env override switches profile', getActiveProfileId() === 'openai-blend')
@@ -311,27 +324,47 @@ assert('env override switches profile', getActiveProfileId() === 'openai-blend')
 process.env.OPENROUTER_MODEL_PROFILE = 'not-a-real-profile'
 assert(
   'invalid profile env falls back to YAML default',
-  getActiveProfileId() === 'openrouter-specialist',
+  getActiveProfileId() === 'balanced-cost',
 )
 delete process.env.OPENROUTER_MODEL_PROFILE
 
-section('Profiles: resolveAgent merge order')
+section('Profiles: resolveAgent merge order (balanced-cost default)')
 
 const resolvedNlu = resolveAgent('agente_escuta_nlu')
-assert('resolved nlu uses Gemini Flash Lite', resolvedNlu.model === 'google/gemini-2.5-flash-lite')
-assert('resolved nlu carries json_strategy', resolvedNlu.json_strategy === 'json_object')
-assert('resolved nlu carries prompt_hints', resolvedNlu.prompt_hints === 'gemini_flash')
-assert('resolved nlu has pricing', !!resolvedNlu.pricing?.input_per_1m_usd)
-assert('resolved nlu carries history_window=6', resolvedNlu.history_window === 6)
+assert('balanced-cost NLU uses Gemini Flash Lite', resolvedNlu.model === 'google/gemini-2.5-flash-lite')
+assert('NLU uses json_object strategy', resolvedNlu.json_strategy === 'json_object')
+assert('NLU uses gemini_flash hints', resolvedNlu.prompt_hints === 'gemini_flash')
+assert('NLU has pricing block', !!resolvedNlu.pricing?.input_per_1m_usd)
+assert('NLU carries history_window=6', resolvedNlu.history_window === 6)
 
 const resolvedMotor = resolveAgent('agente_motor_acordo')
-assert('specialist motor uses DeepSeek V4 Flash', resolvedMotor.model === 'deepseek/deepseek-v4-flash')
+assert('balanced-cost Motor uses Mistral Small', resolvedMotor.model === 'mistralai/mistral-small-2603')
+assert('Motor temperature is 0 (deterministic per GP-05)', resolvedMotor.temperature === 0.0)
 
 const resolvedEmpatia = resolveAgent('agente_empatia_copywriter')
-assert('specialist empatia uses Qwen 3.6 Flash', resolvedEmpatia.model === 'qwen/qwen3.6-flash')
+// Empatia uses Gemini Flash Lite for speed: ~2s decode vs ~3-4s on GPT-4o-mini,
+// equally empathic with the gemini_flash hint. Biggest perceived-latency win.
+assert('balanced-cost Empatia uses Gemini Flash Lite (speed)', resolvedEmpatia.model === 'google/gemini-2.5-flash-lite')
+assert('Empatia uses text strategy (free copy)', resolvedEmpatia.json_strategy === 'text')
+assert('Empatia uses gemini_flash hint for tone', resolvedEmpatia.prompt_hints === 'gemini_flash')
 
 const resolvedGuardiao = resolveAgent('agente_guardiao_compliance')
-assert('specialist guardião uses Mistral Small', resolvedGuardiao.model === 'mistralai/mistral-small-2603')
+// Guardião uses Mistral Small (not GPT-4o-mini) — measured ~5x faster on OR
+// at the same JSON quality, and 95% of compliance work is done by the
+// deterministic L0/L1/L2 layers before the LLM judge runs.
+assert('balanced-cost Guardião uses Mistral Small (speed)', resolvedGuardiao.model === 'mistralai/mistral-small-2603')
+assert('Guardião is deterministic (temperature 0)', resolvedGuardiao.temperature === 0.0)
+
+// Multi-vendor invariant — balanced-cost trades one vendor for ~1-2s of
+// Empatia latency (Gemini Flash Lite > GPT-4o-mini). We still require at
+// least 2 vendors to prove the harness isn't collapsing to single-model
+// (any all-one-vendor profile would be an obvious regression).
+const balancedVendors = new Set(
+  [resolvedNlu.model, resolvedMotor.model, resolvedEmpatia.model, resolvedGuardiao.model]
+    .map((slug) => slug.split('/')[0]),
+)
+assert('balanced-cost spans ≥ 2 distinct vendors', balancedVendors.size >= 2)
+assert('balanced-cost uses at least one non-OpenAI vendor', [...balancedVendors].some((v) => v !== 'openai'))
 
 process.env.OPENROUTER_MODEL_PROFILE = 'openai-blend'
 const resolvedMotorOpenAi = resolveAgent('agente_motor_acordo')
@@ -427,6 +460,183 @@ assert(
   'falls back when no JSON present',
   parseJSON('nada aqui', { ok: false }).ok === false,
 )
+
+// ─── Guardião risk-tiered L3 fast-path ───────────────────────────────────────
+
+section('Guardião: risk-tiered fast-path')
+
+// Helper that runs the Guardião with a fake openrouter wrapper. The fast-path
+// must complete WITHOUT calling the LLM at all — proved by an OR client that
+// throws on any fetch.
+async function runGuardiao(stateOverrides) {
+  const explodingOpenRouter = {
+    apiKey: 'should-not-be-used',
+    baseUrl: 'http://invalid.localhost.invalid',
+  }
+  const realFetch = globalThis.fetch
+  let llmWasCalled = false
+  globalThis.fetch = async () => {
+    llmWasCalled = true
+    return { ok: true, async json() { return { choices: [{ message: { content: '{}' } }], usage: { total_tokens: 0 } } } }
+  }
+
+  const state = {
+    draft_response: 'Olá João, posso oferecer um parcelamento em 3x. Aceita?',
+    detected_intent: 'Pedido de desconto',
+    user_role: 'CUSTOMER',
+    security_threats: [],
+    security_severity: null,
+    ...stateOverrides,
+  }
+  // Minimal resolved-agent shape; LLM fields are irrelevant on the fast path.
+  const agent = {
+    model: 'test/should-not-be-called',
+    temperature: 0.0,
+    system_prompt: 'sys',
+    json_strategy: 'json_object',
+    prompt_hints: 'strict_json',
+  }
+
+  try {
+    const result = await guardiao.run(state, { agent, openrouter: explodingOpenRouter })
+    return { result, llmWasCalled }
+  } finally {
+    globalThis.fetch = realFetch
+  }
+}
+
+// 1. Clean draft + low-risk intent → fast-path, no LLM call.
+{
+  const { result, llmWasCalled } = await runGuardiao({})
+  assert('fast-path: clean low-risk turn approves', result.patch.compliance_status === 'APROVADO')
+  assert('fast-path: no LLM call made', llmWasCalled === false)
+  assert('fast-path: latency_ms is 0', result.trace.latency_ms === 0)
+  assert('fast-path: usage is zeroed', result.trace.usage?.total_tokens === 0)
+  assert(
+    'fast-path: thought logs L3:skipped(low_risk)',
+    /L3:skipped\(low_risk\)/.test(result.trace.thought),
+  )
+}
+
+// 2. High-risk intent ("Ameaça Jurídica") MUST escalate to L3 (LLM call happens).
+{
+  const { llmWasCalled } = await runGuardiao({
+    detected_intent: 'Ameaça Jurídica / Risco Legal Elevado',
+  })
+  assert('high-risk intent forces L3 LLM call', llmWasCalled === true)
+}
+
+// 3. Upstream security threats MUST escalate to L3 even if intent is low-risk.
+{
+  const { llmWasCalled } = await runGuardiao({
+    detected_intent: 'Pedido de desconto',
+    security_threats: [{ threat: 'PROMPT_INJECTION', severity: 'MEDIUM', detail: 'mock' }],
+    security_severity: 'MEDIUM',
+  })
+  assert('upstream threats force L3 LLM call', llmWasCalled === true)
+}
+
+// 4. CDC-forbidden regex hit MUST short-circuit to REJEITADO at L1 (also no L3).
+{
+  const { result, llmWasCalled } = await runGuardiao({
+    draft_response: 'Se você não pagar vamos sujar nome no SPC.',
+  })
+  assert('L1 regex catches forbidden term', result.patch.compliance_status === 'REJEITADO')
+  assert('L1 rejection skips L3 LLM call', llmWasCalled === false)
+  assert('L1 thought logs regex hit', /REJEITADO \(L1\/regex\)/.test(result.trace.thought))
+}
+
+// 5. Unknown / null intent must NOT take the fast path — we play safe.
+{
+  const { llmWasCalled } = await runGuardiao({ detected_intent: null })
+  assert('null intent escalates to L3 (safe default)', llmWasCalled === true)
+}
+
+// ─── Mock CRM seed (powers the "Aguardando CRM" UI fix) ───────────────────────
+
+section('CRM: mock case fixture')
+
+assert('MOCK_CRM_CASE is exported', typeof MOCK_CRM_CASE === 'object' && MOCK_CRM_CASE !== null)
+assert('MOCK_CRM_CASE.debtor_name set', typeof MOCK_CRM_CASE.debtor_name === 'string' && MOCK_CRM_CASE.debtor_name.length > 0)
+assert('MOCK_CRM_CASE.total_amount > 0', MOCK_CRM_CASE.total_amount > 0)
+assert('MOCK_CRM_CASE.days_overdue integer ≥ 0', Number.isInteger(MOCK_CRM_CASE.days_overdue) && MOCK_CRM_CASE.days_overdue >= 0)
+assert('MOCK_CRM_CASE.product set', !!MOCK_CRM_CASE.product)
+assert('MOCK_CRM_CASE.status set', !!MOCK_CRM_CASE.status)
+
+// The fixture must round-trip through the backend MCP normalizer so the
+// Motor sees the same shape after a request.
+const normalized = getDebtStatus(MOCK_CRM_CASE)
+assert('MOCK_CRM_CASE survives MCP normalization', normalized.result !== null)
+assert('normalized total matches fixture', normalized.result?.total_amount === MOCK_CRM_CASE.total_amount)
+assert('normalized days_overdue matches fixture', normalized.result?.days_overdue === MOCK_CRM_CASE.days_overdue)
+
+// Motor math sanity: discount × principal × installments must round-trip.
+const fixturePolicy = getDiscountPolicy(MOCK_CRM_CASE.days_overdue).result
+const fixtureAmort = calculateAmortization({
+  principal: MOCK_CRM_CASE.total_amount,
+  discount: fixturePolicy.max_discount,
+  installments: 3,
+})
+assert(
+  'fixture amortization yields exact cents (no float drift)',
+  Number.isInteger(fixtureAmort.result.installment_value * 100),
+)
+
+assert('INITIAL_AGENT_STATE seeds debtInfo with MOCK_CRM_CASE', INITIAL_AGENT_STATE.debtInfo === MOCK_CRM_CASE)
+
+// ─── max_tokens plumbing on the OpenRouter wrapper ────────────────────────────
+
+section('OpenRouter: max_tokens cap on free-text agents')
+
+// We don't hit the network — just confirm the parameter survives into the
+// request body via a fake fetch interceptor.
+let capturedBody = null
+const originalFetch = globalThis.fetch
+globalThis.fetch = async (_url, init) => {
+  capturedBody = JSON.parse(init.body)
+  return {
+    ok: true,
+    async json() {
+      return { choices: [{ message: { content: 'ok' } }], usage: { total_tokens: 1 } }
+    },
+  }
+}
+
+try {
+  const { callOpenRouter } = await import('../api/lib/openrouter.js')
+  await callOpenRouter({
+    model: 'test/model',
+    system: 'sys',
+    messages: [{ role: 'user', content: 'hi' }],
+    jsonStrategy: 'text',
+    maxTokens: 600,
+    apiKey: 'sk-test',
+  })
+  assert('maxTokens lands as request.max_tokens', capturedBody?.max_tokens === 600)
+
+  capturedBody = null
+  await callOpenRouter({
+    model: 'test/model',
+    system: 'sys',
+    messages: [{ role: 'user', content: 'hi' }],
+    jsonStrategy: 'text',
+    apiKey: 'sk-test',
+  })
+  assert('omitted maxTokens does NOT add max_tokens to body', capturedBody?.max_tokens === undefined)
+
+  capturedBody = null
+  await callOpenRouter({
+    model: 'test/model',
+    system: 'sys',
+    messages: [{ role: 'user', content: 'hi' }],
+    jsonStrategy: 'text',
+    maxTokens: 0,
+    apiKey: 'sk-test',
+  })
+  assert('zero maxTokens is rejected (no body field)', capturedBody?.max_tokens === undefined)
+} finally {
+  globalThis.fetch = originalFetch
+}
 
 // ─── Summary ─────────────────────────────────────────────────────────────────
 

@@ -15,18 +15,6 @@
  *   - Add to SCENARIOS in priority order (most specific first)
  */
 
-const DEBT_INFO = {
-  debtor_name: 'João da Silva',
-  total_amount: 1200.0,
-  days_overdue: 45,
-  product: 'Crédito Pessoal',
-}
-
-const POLICY_INFO = {
-  max_discount: 0.3,
-  label: '30% — atraso moderado (31-60 dias)',
-}
-
 const RAG_POLICY = {
   source: 'tabela_alcadas_2026.csv',
   snippet: 'Atraso 31-60 dias: Margem máx = 30%.',

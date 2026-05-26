@@ -11,16 +11,8 @@
  */
 
 import { runSecurityGate } from '../shared/security.js'
+import { MOCK_CRM_CASE } from '../constants.js'
 import { detectScenario, buildScenarioOutput, simAgentMetrics } from './fallback-scenarios.js'
-
-const DEBT_INFO_FULL = {
-  debtor_name: 'João da Silva',
-  cpf_masked: '***.***.123-**',
-  total_amount: 1200.0,
-  days_overdue: 45,
-  product: 'Crédito Pessoal',
-  status: 'OVERDUE',
-}
 
 /**
  * Async generator that streams pipeline events from the backend.
@@ -193,7 +185,7 @@ async function* runLocalFallback(message, userRole, history = []) {
       id: 'agente_motor_acordo',
       patch: {
         calculated_proposal: scenario.proposal,
-        debt_info: DEBT_INFO_FULL,
+        debt_info: MOCK_CRM_CASE,
       },
       trace: {
         thought: `[SIM] ${scenario.motorThought}`,

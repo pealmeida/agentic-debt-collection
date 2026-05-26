@@ -79,9 +79,30 @@ export const SUGGESTIONS = {
   ],
 }
 
+/**
+ * Mock CRM case loaded at session start.
+ *
+ * In a real deployment the cockpit would receive this from the CRM (URN
+ * `urn:mcp:crm:debt_status`). Until that integration lands we seed a single
+ * deterministic case so:
+ *   1. The sidebar shows real context instead of "Aguardando CRM" forever.
+ *   2. `/api/orchestrate` receives valid `debt_data`, letting the Motor
+ *      actually compute a proposal (`api/lib/tools.js#normalizeDebtData`).
+ *   3. The local fallback and the real backend share the same fixture.
+ */
+export const MOCK_CRM_CASE = {
+  debt_id: 'D-9982',
+  debtor_name: 'João da Silva',
+  cpf_masked: '***.***.123-**',
+  total_amount: 1200.0,
+  days_overdue: 45,
+  product: 'Crédito Pessoal',
+  status: 'OVERDUE',
+}
+
 export const INITIAL_AGENT_STATE = {
   activeAgent: null,
-  debtInfo: null,
+  debtInfo: MOCK_CRM_CASE,
   detectedIntent: null,
   sentiment: null,
   calculatedProposal: null,
