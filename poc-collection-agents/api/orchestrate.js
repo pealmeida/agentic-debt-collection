@@ -14,7 +14,18 @@ const AGENT_RUNNERS = {
 
 export const config = { maxDuration: 30 }
 
+function sendOptions(res) {
+  res.setHeader('Access-Control-Allow-Origin', '*')
+  res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS')
+  res.setHeader('Access-Control-Allow-Headers', 'Content-Type')
+  return res.status(204).end()
+}
+
 export default async function handler(req, res) {
+  if (req.method === 'OPTIONS') {
+    return sendOptions(res)
+  }
+
   // Health check (lightweight echo of the main healthz, keeps backward compat).
   if (req.method === 'GET') {
     const profile = getActiveProfile()
@@ -32,7 +43,7 @@ export default async function handler(req, res) {
   const apiKey = process.env.OPENROUTER_API_KEY
 
   if (!apiKey) {
-    return res.status(503).json({ error: 'No API key configured', mock: true })
+    return res.status(503).json({ error: 'No OpenRouter API key configured', mock: true })
   }
 
   const profile = getActiveProfile()
@@ -46,7 +57,7 @@ export default async function handler(req, res) {
     return res.status(400).json({ error: 'Invalid JSON body' })
   }
 
-  const { session_id, user_role = 'CUSTOMER', message, history = [] } = body
+  const { session_id, user_role = 'CUSTOMER', message, history = [], debt_data = null } = body
 
   if (!message?.trim()) {
     return res.status(400).json({ error: 'message is required' })
@@ -104,6 +115,7 @@ export default async function handler(req, res) {
       user_role,
       message,
       history,
+      debt_data,
       detected_intent: null,
       sentiment: null,
       nlu_summary: null,

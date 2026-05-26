@@ -26,13 +26,13 @@ const DEBT_INFO_FULL = {
  * Async generator that streams pipeline events from the backend.
  * Each yielded event: { type: string, data: object }
  */
-export async function* runPipeline(message, { sessionId, userRole, history = [] }) {
+export async function* runPipeline(message, { sessionId, userRole, history = [], debtData = null }) {
   let res
   try {
     res = await fetch('/api/orchestrate', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ session_id: sessionId, user_role: userRole, message, history }),
+      body: JSON.stringify({ session_id: sessionId, user_role: userRole, message, history, debt_data: debtData }),
     })
   } catch (networkErr) {
     yield { type: 'fallback', data: { reason: 'network_error' } }

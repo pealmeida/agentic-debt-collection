@@ -42,12 +42,13 @@ Parsing regex em cima de texto livre é frágil e proibido.
 
 ---
 
-## GP-04 — Tools mock respeitam contrato MCP
+## GP-04 — Tools respeitam contrato MCP
 
 Cada função em `api/lib/tools.js` retorna `{ result, source, snippet }`.
 `source` deve ser uma URN válida (`urn:mcp:*`).
 
 **Por quê:** Quando MCPs reais forem implementados, a troca é cirúrgica: substitua o corpo da função, não a interface.
+O `debt_status` não possui devedor hardcoded; ele normaliza o `debt_data` vindo do request/CRM.
 
 ---
 
@@ -67,7 +68,8 @@ Todo processamento passa pelo backend via `/api/orchestrate`.
 
 **Por quê:** Mantém a UI testável independentemente e o backend auditável.
 
-**Exceção permitida:** O fallback de simulação em `src/services/orchestrator.js` é intencional — garante demo offline.
+**Exceção permitida:** o fallback de simulação em `src/services/orchestrator.js` é intencional para POC/demo offline.
+Ele deve ser visível como `mode=simulation`/`isFallback` e nunca deve ser confundido com execução real via OpenRouter.
 
 ---
 

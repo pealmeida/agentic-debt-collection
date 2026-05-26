@@ -15,12 +15,12 @@ const INITIAL_MESSAGES = {
   CUSTOMER: {
     id: 1,
     role: 'ai',
-    text: 'Olá João! Aqui é a assistente da Financeira. Verifiquei que temos uma parcela de R$ 1.200,00 em atraso há 45 dias. Como posso te ajudar hoje a regularizar essa situação?',
+    text: 'Olá! Sou a assistente de negociação. Envie sua mensagem e, quando houver contexto de dívida no CRM, calculo uma proposta dentro da política.',
   },
   AGENT: {
     id: 1,
     role: 'system',
-    text: 'COCKPIT COLLECTIONS ENGINEER — Caso ativo: João da Silva (D-9982). Aguardando input da chamada ou chat.',
+    text: 'COCKPIT COLLECTIONS ENGINEER - Aguardando contexto do caso CRM e input da chamada ou chat.',
   },
 }
 
@@ -143,7 +143,7 @@ export default function App() {
     const eventCtx = { setAgentState, setMessages, addLog, updateInspector, stepIndexRef, turnTraceRef }
 
     try {
-      for await (const event of runPipeline(textToSend, { sessionId: sessionId.current, userRole: mode, history })) {
+      for await (const event of runPipeline(textToSend, { sessionId: sessionId.current, userRole: mode, history, debtData: agentState.debtInfo })) {
         applyPipelineEvent(event, eventCtx)
       }
     } finally {

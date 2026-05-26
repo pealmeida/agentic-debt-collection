@@ -1,7 +1,15 @@
-import { getActiveProfile, getPipeline, listProfiles, resolveAgent } from './lib/harness.js'
+import { getActiveProfile, getHarness, getPipeline, listProfiles, resolveAgent } from './lib/harness.js'
 
 export default function handler(req, res) {
+  if (req.method === 'OPTIONS') {
+    res.setHeader('Access-Control-Allow-Origin', '*')
+    res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS')
+    res.setHeader('Access-Control-Allow-Headers', 'Content-Type')
+    return res.status(204).end()
+  }
+
   const key = process.env.OPENROUTER_API_KEY
+  const harness = getHarness()
   const profile = getActiveProfile()
 
   let agents = []
@@ -25,6 +33,8 @@ export default function handler(req, res) {
   res.status(200).json({
     ok: true,
     has_key: !!key,
+    version: harness.version,
+    provider: profile?.provider || 'openrouter',
     timestamp: new Date().toISOString(),
     profile: profile
       ? { id: profile.id, label: profile.label, description: profile.description || null }

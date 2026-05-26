@@ -16,7 +16,7 @@ const OPENROUTER_BASE = 'https://openrouter.ai/api/v1'
  * @param {object} [opts.schema]       - JSON Schema (omit for free-text outputs).
  * @param {string} [opts.schemaName]   - Optional name for json_schema strict mode.
  * @param {('schema_strict'|'json_object'|'prompted_json'|'text')} [opts.jsonStrategy='schema_strict']
- * @param {('openai_strict'|'gemini_flash'|'claude_xml'|null)} [opts.promptHints]
+ * @param {('openai_strict'|'strict_json'|'gemini_flash'|'claude_xml'|null)} [opts.promptHints]
  * @param {string} opts.apiKey         - OpenRouter API key.
  * @param {string} [opts.baseUrl]      - Override base URL.
  * @returns {{ content: string, usage: object, latencyMs: number, model: string }}
@@ -118,6 +118,24 @@ export function applyPromptHints(systemPrompt, hint, { jsonStrategy, schema } = 
   const wantsJson = jsonStrategy && jsonStrategy !== 'text'
 
   switch (hint) {
+    case 'strict_json':
+      return [
+        systemPrompt,
+        wantsJson
+          ? buildJsonContract(schema, {
+              header: 'FORMATO DE SAIDA:',
+              bullets: [
+                'Responda apenas com JSON valido.',
+                'Nao use markdown, code fences, comentarios ou texto fora do JSON.',
+                'Use exatamente as chaves esperadas pelo schema.',
+                'Se um campo for desconhecido, use string vazia "" ou 0, nunca null.',
+              ],
+            })
+          : null,
+      ]
+        .filter(Boolean)
+        .join('\n\n')
+
     case 'gemini_flash':
       return [
         systemPrompt,

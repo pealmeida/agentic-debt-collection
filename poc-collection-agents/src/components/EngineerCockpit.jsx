@@ -24,6 +24,34 @@ const AGENT_LABELS = {
   agente_guardiao_compliance: 'Guardião',
 }
 
+const HARNESS_AGENT_META = {
+  agente_escuta_nlu: {
+    label: 'Escuta Ativa (NLU)',
+    tools: [],
+    outputs: ['detected_intent', 'sentiment', 'confidence', 'summary'],
+    description: 'Classifica intenção e sentimento. Recebe apenas mensagem + histórico.',
+  },
+  agente_motor_acordo: {
+    label: 'Motor de Acordo',
+    tools: ['get_debt_status', 'get_politicas_desconto', 'calculate_amortization'],
+    outputs: ['calculated_proposal', 'motor_tactic_note'],
+    description: 'Consulta MCP/CRM e calcula proposta matemática somente quando há contexto de dívida válido.',
+  },
+  agente_empatia_copywriter: {
+    label: 'Empatia (Copywriter)',
+    tools: [],
+    outputs: ['draft_response'],
+    description: 'Traduz proposta ou orientação em texto humano adaptado ao user_role.',
+  },
+  agente_guardiao_compliance: {
+    label: 'Guardião (Compliance)',
+    tools: ['check_guardrail_violations', 'get_cdc_guidelines'],
+    outputs: ['compliance_status', 'compliance_feedback', 'compliance_risk'],
+    description: 'Validação regex + LLM-as-judge contra CDC. Pode disparar self-correction.',
+    guardrails: ['sujar nome', 'processo', 'penhora', 'polícia', 'delegacia', 'prisão'],
+  },
+}
+
 function getObservabilityEntries() {
   try {
     return JSON.parse(sessionStorage.getItem('poc_observability') || '[]')
@@ -40,51 +68,22 @@ function HarnessStudio() {
   useEffect(() => {
     fetch('/api/healthz')
       .then((r) => r.json())
-      .then(() => {
-        // The actual harness YAML is loaded server-side.
-        // We show a structured representation from the known spec.
+      .then((data) => {
+        const agents = (data.agents || []).map((agent) => ({
+          ...HARNESS_AGENT_META[agent.id],
+          ...agent,
+          label: HARNESS_AGENT_META[agent.id]?.label || agent.id,
+          tools: HARNESS_AGENT_META[agent.id]?.tools || [],
+          outputs: HARNESS_AGENT_META[agent.id]?.outputs || [],
+          description: HARNESS_AGENT_META[agent.id]?.description || '',
+          guardrails: HARNESS_AGENT_META[agent.id]?.guardrails,
+        }))
         setHarness({
-          version: '1.1',
-          provider: 'openrouter',
-          agents: [
-            {
-              id: 'agente_escuta_nlu',
-              label: 'Escuta Ativa (NLU)',
-              model: 'openai/gpt-4o-mini',
-              temperature: 0.1,
-              tools: [],
-              outputs: ['detected_intent', 'sentiment', 'confidence', 'summary'],
-              description: 'Classifica intenção e sentimento. Recebe apenas mensagem + histórico (progressive disclosure).',
-            },
-            {
-              id: 'agente_motor_acordo',
-              label: 'Motor de Acordo',
-              model: 'openai/gpt-4o',
-              temperature: 0.0,
-              tools: ['get_debt_status', 'get_politicas_desconto', 'calculate_amortization'],
-              outputs: ['calculated_proposal', 'motor_tactic_note'],
-              description: 'Consulta MCPs e calcula proposta matemática. Resposta 100% determinística (temp=0).',
-            },
-            {
-              id: 'agente_empatia_copywriter',
-              label: 'Empatia (Copywriter)',
-              model: 'openai/gpt-4o-mini',
-              temperature: 0.7,
-              tools: [],
-              outputs: ['draft_response'],
-              description: 'Traduz proposta matemática em texto humano. Adapta tom e formato ao user_role. Recebe feedback do Guardião em self-correction.',
-            },
-            {
-              id: 'agente_guardiao_compliance',
-              label: 'Guardião (Compliance)',
-              model: 'openai/gpt-4o',
-              temperature: 0.0,
-              tools: ['check_guardrail_violations', 'get_cdc_guidelines'],
-              outputs: ['compliance_status', 'compliance_feedback', 'compliance_risk'],
-              description: 'Dupla validação: regex rápida (Art. 42/71 CDC) + LLM-as-judge semântico. Pode disparar self-correction.',
-              guardrails: ['sujar nome', 'processo', 'penhora', 'polícia', 'delegacia', 'prisão'],
-            },
-          ],
+          version: data.version,
+          provider: data.provider || 'openrouter',
+          profile: data.profile,
+          hasKey: data.has_key,
+          agents,
           selfCorrection: {
             trigger: 'compliance_status === REJEITADO',
             retryFrom: 'agente_empatia_copywriter',
@@ -121,9 +120,15 @@ function HarnessStudio() {
       <div className="flex items-center justify-between">
         <div>
           <h3 className="text-sm font-bold text-slate-800">Harness Studio</h3>
-          <p className="text-xs text-slate-500">v{harness.version} · provider: {harness.provider}</p>
+          <p className="text-xs text-slate-500">v{harness.version} · {harness.profile?.id || 'sem-profile'} · {harness.provider}</p>
         </div>
-        <span className="text-[10px] font-bold bg-brand-50 text-brand-700 border border-brand-200 px-2 py-0.5 rounded">LIVE</span>
+        <span className={`text-[10px] font-bold border px-2 py-0.5 rounded ${
+          harness.hasKey
+            ? 'bg-brand-50 text-brand-700 border-brand-200'
+            : 'bg-amber-50 text-amber-700 border-amber-200'
+        }`}>
+          {harness.hasKey ? 'LIVE' : 'SEM KEY'}
+        </span>
       </div>
 
       <div className="space-y-2">

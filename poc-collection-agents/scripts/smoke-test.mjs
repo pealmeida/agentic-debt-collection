@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /**
- * Smoke test — validates the security layer, harness loader, and mock tools.
+ * Smoke test — validates the security layer, harness loader, and MCP tool contracts.
  * No LLM calls. Pure unit verification that the deterministic layers work.
  *
  * Run: node scripts/smoke-test.mjs
@@ -186,12 +186,21 @@ assert(
 
 // ─── Mock Tools ──────────────────────────────────────────────────────────────
 
-section('Tools: MCP Mocks')
+section('Tools: MCP contracts')
 
-const debt = getDebtStatus('D-9982')
-assert('debt status returns result', !!debt.result?.debtor_name)
+const debt = getDebtStatus({
+  debt_id: 'CASE-1',
+  debtor_name: 'Cliente Teste',
+  total_amount: 1200,
+  days_overdue: 45,
+  product: 'Credito Pessoal',
+})
+assert('debt status returns provided result', debt.result?.debt_id === 'CASE-1')
 assert('debt status has source URN', debt.source?.startsWith('urn:mcp:'))
 assert('debt status has snippet', typeof debt.snippet === 'string' && debt.snippet.length > 0)
+
+const missingDebt = getDebtStatus(null)
+assert('missing debt context returns null result', missingDebt.result === null)
 
 const policy = getDiscountPolicy(45)
 assert('policy for 45 days exists', policy.result?.max_discount === 0.3)
@@ -282,8 +291,8 @@ section('Profiles: catalog + active resolution')
 const profiles = listProfiles()
 assert('listProfiles returns >= 2 entries', profiles.length >= 2)
 assert(
-  'gemini-flash-lite is registered',
-  profiles.some((p) => p.id === 'gemini-flash-lite'),
+  'openrouter-specialist is registered',
+  profiles.some((p) => p.id === 'openrouter-specialist'),
 )
 assert(
   'openai-blend is registered',
@@ -294,7 +303,7 @@ assert(
 delete process.env.OPENROUTER_MODEL_PROFILE
 delete process.env.OPENROUTER_DEFAULT_MODEL
 const defaultProfileId = getActiveProfileId()
-assert('default active profile is gemini-flash-lite', defaultProfileId === 'gemini-flash-lite')
+assert('default active profile is openrouter-specialist', defaultProfileId === 'openrouter-specialist')
 
 process.env.OPENROUTER_MODEL_PROFILE = 'openai-blend'
 assert('env override switches profile', getActiveProfileId() === 'openai-blend')
@@ -302,18 +311,27 @@ assert('env override switches profile', getActiveProfileId() === 'openai-blend')
 process.env.OPENROUTER_MODEL_PROFILE = 'not-a-real-profile'
 assert(
   'invalid profile env falls back to YAML default',
-  getActiveProfileId() === 'gemini-flash-lite',
+  getActiveProfileId() === 'openrouter-specialist',
 )
 delete process.env.OPENROUTER_MODEL_PROFILE
 
 section('Profiles: resolveAgent merge order')
 
 const resolvedNlu = resolveAgent('agente_escuta_nlu')
-assert('resolved nlu uses gemini model', resolvedNlu.model === 'google/gemini-2.5-flash-lite')
+assert('resolved nlu uses Gemini Flash Lite', resolvedNlu.model === 'google/gemini-2.5-flash-lite')
 assert('resolved nlu carries json_strategy', resolvedNlu.json_strategy === 'json_object')
 assert('resolved nlu carries prompt_hints', resolvedNlu.prompt_hints === 'gemini_flash')
 assert('resolved nlu has pricing', !!resolvedNlu.pricing?.input_per_1m_usd)
-assert('resolved nlu carries history_window=4 for flash', resolvedNlu.history_window === 4)
+assert('resolved nlu carries history_window=6', resolvedNlu.history_window === 6)
+
+const resolvedMotor = resolveAgent('agente_motor_acordo')
+assert('specialist motor uses DeepSeek V4 Flash', resolvedMotor.model === 'deepseek/deepseek-v4-flash')
+
+const resolvedEmpatia = resolveAgent('agente_empatia_copywriter')
+assert('specialist empatia uses Qwen 3.6 Flash', resolvedEmpatia.model === 'qwen/qwen3.6-flash')
+
+const resolvedGuardiao = resolveAgent('agente_guardiao_compliance')
+assert('specialist guardião uses Mistral Small', resolvedGuardiao.model === 'mistralai/mistral-small-2603')
 
 process.env.OPENROUTER_MODEL_PROFILE = 'openai-blend'
 const resolvedMotorOpenAi = resolveAgent('agente_motor_acordo')
@@ -331,7 +349,7 @@ section('Profiles: cost estimation')
 
 const resolved = resolveAgent('agente_escuta_nlu')
 const cost = estimateCostUsd(resolved, { prompt_tokens: 100_000, completion_tokens: 50_000 })
-// Gemini flash-lite: 100k * $0.10/1M + 50k * $0.40/1M = 0.01 + 0.02 = 0.03
+// Gemini Flash Lite: 100k * $0.10/1M + 50k * $0.40/1M = 0.01 + 0.02 = 0.03
 assert('cost uses per-1M pricing', Math.abs(cost - 0.03) < 1e-6, `got ${cost}`)
 
 const noPricing = { pricing: null }
@@ -377,6 +395,12 @@ const gemTextHint = applyPromptHints('Você é um copywriter.', 'gemini_flash', 
 })
 assert('gemini_flash text mode adds style guidance', /conciso/i.test(gemTextHint))
 assert('gemini_flash text mode does NOT demand JSON', !/JSON/i.test(gemTextHint))
+
+const strictJsonHint = applyPromptHints('Você é um agente.', 'strict_json', {
+  jsonStrategy: 'json_object',
+  schema: sampleSchema,
+})
+assert('strict_json hint mentions JSON valido', /JSON valido/i.test(strictJsonHint))
 
 const openaiDecorated = applyPromptHints('Você é um agente.', 'openai_strict', {
   jsonStrategy: 'schema_strict',

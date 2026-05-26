@@ -28,9 +28,17 @@ function AgentStepItem({ icon, title, active, completed, detail, isSuccess }) {
 
 function GrafoTab({ agentState, isProcessing }) {
   const contextRows = [
-    { label: 'Devedor', value: agentState.debtInfo?.debtor_name || 'João da Silva', valueClass: 'text-slate-800' },
-    { label: 'Dívida Total', value: `R$ ${(agentState.debtInfo?.total_amount || 1200).toFixed(2)}`, valueClass: 'text-red-600' },
-    { label: 'Atraso', value: `${agentState.debtInfo?.days_overdue || 45} dias`, valueClass: 'text-amber-700' },
+    { label: 'Devedor', value: agentState.debtInfo?.debtor_name || 'Aguardando CRM', valueClass: 'text-slate-800' },
+    {
+      label: 'Dívida Total',
+      value: agentState.debtInfo?.total_amount ? `R$ ${agentState.debtInfo.total_amount.toFixed(2)}` : 'Aguardando CRM',
+      valueClass: agentState.debtInfo?.total_amount ? 'text-red-600' : 'text-slate-500',
+    },
+    {
+      label: 'Atraso',
+      value: agentState.debtInfo?.days_overdue != null ? `${agentState.debtInfo.days_overdue} dias` : 'Aguardando CRM',
+      valueClass: agentState.debtInfo?.days_overdue != null ? 'text-amber-700' : 'text-slate-500',
+    },
   ]
 
   return (
@@ -52,10 +60,12 @@ function GrafoTab({ agentState, isProcessing }) {
               <span className="font-semibold text-brand-700 capitalize">{agentState.sentiment}</span>
             </div>
           )}
-          <div className="flex justify-between pt-2 border-t border-slate-200 gap-2">
-            <span className="text-slate-500">Lim. Desconto:</span>
-            <span className="font-semibold text-emerald-600">30%</span>
-          </div>
+          {agentState.calculatedProposal && (
+            <div className="flex justify-between pt-2 border-t border-slate-200 gap-2">
+              <span className="text-slate-500">Lim. Desconto:</span>
+              <span className="font-semibold text-emerald-600">{agentState.calculatedProposal.desconto}</span>
+            </div>
+          )}
         </div>
 
         {agentState.isFallback && (

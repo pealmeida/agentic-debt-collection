@@ -1,20 +1,34 @@
-import { readFileSync, statSync } from 'fs'
+import { existsSync, readFileSync, statSync } from 'fs'
 import { join, dirname } from 'path'
 import { fileURLToPath } from 'url'
 import yaml from 'js-yaml'
 
 const __dirname = dirname(fileURLToPath(import.meta.url))
-const HARNESS_PATH = join(__dirname, '../../config/harness_negotiator.yaml')
+const HARNESS_CANDIDATES = [
+  // Vercel recommends process.cwd() for files included with Functions.
+  join(process.cwd(), 'config/harness_negotiator.yaml'),
+  // Local/Vite fallback when this module is loaded from api/lib.
+  join(__dirname, '../../config/harness_negotiator.yaml'),
+]
+
+function getHarnessPath() {
+  const path = HARNESS_CANDIDATES.find((candidate) => existsSync(candidate))
+  if (!path) {
+    throw new Error(`Harness YAML not found. Tried: ${HARNESS_CANDIDATES.join(', ')}`)
+  }
+  return path
+}
 
 let _cachedHarness = null
 let _cachedMtimeMs = null
 
 function loadHarness() {
+  const harnessPath = getHarnessPath()
   // Use file mtime as cache key — robust across content changes that preserve length.
-  const mtimeMs = statSync(HARNESS_PATH).mtimeMs
+  const mtimeMs = statSync(harnessPath).mtimeMs
   if (_cachedHarness && _cachedMtimeMs === mtimeMs) return _cachedHarness
 
-  const raw = readFileSync(HARNESS_PATH, 'utf8')
+  const raw = readFileSync(harnessPath, 'utf8')
   _cachedHarness = yaml.load(raw)
   _cachedMtimeMs = mtimeMs
   return _cachedHarness

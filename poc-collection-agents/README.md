@@ -1,6 +1,6 @@
 # POC Multiagente de Cobrança
 
-Interface React + orquestrador serverless para simulação completa da jornada de recuperação de crédito.
+Interface React + orquestrador serverless para a jornada de recuperação de crédito.
 Integra OpenRouter para execução real de um pipeline multiagente (NLU → Motor de Acordo → Empatia → Guardião).
 
 ## Funcionalidades
@@ -12,12 +12,12 @@ Integra OpenRouter para execução real de um pipeline multiagente (NLU → Moto
 - **Security layer:** detecção de jailbreak, prompt injection e token flooding antes da pipeline
 - **Inspetor IA:** chain-of-thought, tools MCP, contexto RAG — tudo inspecionável
 - **Collections Engineer Cockpit:** Observability (tokens, latência, custo, sentimento) + Harness Studio
-- **Fallback completo:** sem chave/sem backend, POC roda em simulação que cobre 100% das features
+- **Fallback de POC:** sem chave/sem backend, a UI roda cenários determinísticos claramente marcados como simulação
+- **Sem devedor hardcoded no backend real:** o Motor só calcula proposta com `debt_data` válido no request
 
 ## Modo simulação (fallback)
 
-Quando o backend `/api` não está disponível (ou nenhuma chave OpenRouter foi configurada),
-a POC roda em um modo simulação determinístico que demonstra **todas** as features:
+Quando o backend `/api` não está disponível ou nenhuma chave OpenRouter foi configurada, a POC roda em modo simulação determinístico. Esse modo existe para demo offline e validação de UX; ele não substitui a pipeline real.
 
 | Feature | Como demonstrar |
 |---------|-----------------|
@@ -27,15 +27,9 @@ a POC roda em um modo simulação determinístico que demonstra **todas** as fea
 | Security block (token flood) | Mensagem com > 4 000 caracteres ou repetição |
 | Self-correction loop | `Vou processar vocês no Procon!` |
 | Acceptance multi-turn | Após uma proposta, responda `Ok aceito` |
-| Renegotiação | `Conseguem fazer em 6 vezes?` |
+| Renegociação | `Conseguem fazer em 6 vezes?` |
 | Contestação | `Eu não devo esse valor, nunca contratei` |
 | Promessa futura | `Só recebo dia 10 do mês que vem` |
-| Cockpit Engineer | Toggle "Collections Engineer" → aba Cockpit |
-| PIX CTA | Toggle "Cliente" → aceite uma proposta |
-| Export Trace | Toggle "Engineer" → após uma execução, botão "Exportar Trace" |
-
-Cada simulação reporta números de tokens, latência e custo dentro de faixas realistas
-(NLU ~250 tokens, Motor ~600 tokens, etc.) e fica registrada no painel Observability.
 
 ## Quick start (local)
 
@@ -47,7 +41,7 @@ cp .env.example .env
 npm run dev
 ```
 
-Abra `http://localhost:5173`. O `npm run dev` sobe o Vite **e** as rotas `/api/*` localmente (`.env` é carregado no backend). Sem chave, a POC funciona em modo simulação.
+Abra `http://localhost:5173`. O `npm run dev` sobe o Vite **e** as rotas `/api/*` localmente (`.env` é carregado no backend). Sem chave OpenRouter, a UI entra no modo simulação de POC.
 
 ## Demo ao vivo
 
@@ -75,7 +69,7 @@ Cenários rápidos (detalhes e roteiro de 5 min no guia):
 | Variável | Valor |
 |----------|-------|
 | `OPENROUTER_API_KEY` | `sk-or-v1-...` |
-| `OPENROUTER_MODEL_PROFILE` | `gemini-flash-lite` *(default)* / `openai-blend` / `claude-haiku` |
+| `OPENROUTER_MODEL_PROFILE` | `openrouter-specialist` *(default)* / `gemini-flash-lite` / `openai-blend` / `claude-haiku` |
 | `OPENROUTER_DEFAULT_MODEL` | *(opcional, legacy — força um único slug em todos os agentes)* |
 
 5. Deploy. A Vercel detecta Vite automaticamente.
@@ -88,14 +82,15 @@ Após deploy: `https://seu-deploy.vercel.app/api/healthz`
 {
   "ok": true,
   "has_key": true,
-  "profile": { "id": "gemini-flash-lite", "label": "Gemini 2.5 Flash Lite" },
+  "profile": { "id": "openrouter-specialist", "label": "OpenRouter Specialist Blend" },
   "agents": [
     { "id": "agente_escuta_nlu", "model": "google/gemini-2.5-flash-lite", "json_strategy": "json_object", "prompt_hints": "gemini_flash" },
-    { "id": "agente_motor_acordo", "model": "google/gemini-2.5-flash-lite", "json_strategy": "json_object", "prompt_hints": "gemini_flash" },
-    { "id": "agente_empatia_copywriter", "model": "google/gemini-2.5-flash-lite", "json_strategy": "text", "prompt_hints": "gemini_flash" },
-    { "id": "agente_guardiao_compliance", "model": "google/gemini-2.5-flash-lite", "json_strategy": "json_object", "prompt_hints": "gemini_flash" }
+    { "id": "agente_motor_acordo", "model": "deepseek/deepseek-v4-flash", "json_strategy": "json_object", "prompt_hints": "strict_json" },
+    { "id": "agente_empatia_copywriter", "model": "qwen/qwen3.6-flash", "json_strategy": "text", "prompt_hints": null },
+    { "id": "agente_guardiao_compliance", "model": "mistralai/mistral-small-2603", "json_strategy": "json_object", "prompt_hints": "strict_json" }
   ],
   "available_profiles": [
+    { "id": "openrouter-specialist", "label": "OpenRouter Specialist Blend" },
     { "id": "gemini-flash-lite", "label": "Gemini 2.5 Flash Lite" },
     { "id": "openai-blend", "label": "OpenAI Blend (4o + 4o-mini)" },
     { "id": "claude-haiku", "label": "Claude 3.5 Haiku" }
@@ -108,10 +103,10 @@ Após deploy: `https://seu-deploy.vercel.app/api/healthz`
 Tudo passa por **model profiles** em `config/harness_negotiator.yaml`. Mude com uma única env var:
 
 ```bash
-# Padrão: gemini-flash-lite (rápido, barato, json_object friendly)
-OPENROUTER_MODEL_PROFILE=gemini-flash-lite
+# Padrão: modelos especializados por papel
+OPENROUTER_MODEL_PROFILE=openrouter-specialist
 
-# Qualidade de produção (4o-mini + 4o em strict schema)
+# Compatibilidade legada (4o-mini + 4o em strict schema)
 OPENROUTER_MODEL_PROFILE=openai-blend
 
 # Anthropic budget tier
@@ -119,6 +114,28 @@ OPENROUTER_MODEL_PROFILE=claude-haiku
 ```
 
 Cada profile define `model`, `temperature`, `json_strategy` e `pricing` por agente. Adicionar um profile novo é editar o YAML — nada em código.
+
+### Payload com contexto real de dívida
+
+O Motor de Acordo não usa devedor hardcoded. Para calcular uma proposta, envie `debt_data` junto com a mensagem:
+
+```json
+{
+  "session_id": "sess-123",
+  "user_role": "CUSTOMER",
+  "message": "Consigo pagar em mais parcelas?",
+  "history": [],
+  "debt_data": {
+    "debt_id": "crm-case-id",
+    "debtor_name": "Nome do cliente",
+    "total_amount": 1200,
+    "days_overdue": 45,
+    "product": "Produto"
+  }
+}
+```
+
+Se `debt_data.total_amount` ou `debt_data.days_overdue` estiver ausente, o Motor bloqueia a proposta e o Empatia pede o contexto necessário.
 
 ## Estrutura
 
@@ -130,7 +147,7 @@ poc-collection-agents/
 │   └── lib/
 │       ├── harness.js       ← Leitor do YAML em runtime
 │       ├── openrouter.js    ← Wrapper OpenRouter
-│       ├── tools.js         ← Mocks MCP (debt_status, políticas, CDC)
+│       ├── tools.js         ← Contratos MCP (debt_status via request, políticas, CDC)
 │       └── agents/          ← 4 agentes (nlu, motor, empatia, guardiao)
 ├── config/
 │   └── harness_negotiator.yaml  ← Fonte da verdade: prompts, models, guardrails, evals

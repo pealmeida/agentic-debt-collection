@@ -31,11 +31,12 @@ export async function run(state, { agent, openrouter }) {
     calculated_proposal: calculated_proposal || null,
     tactic_note: motor_tactic_note || '',
     reason_no_proposal: motor_reason || '',
-    debt_info: debt_info ? {
-      debtor_name: debt_info.debtor_name,
-      total_amount: debt_info.total_amount,
-      days_overdue: debt_info.days_overdue,
-    } : null,
+      debt_info: debt_info ? {
+        debtor_name: debt_info.debtor_name,
+        total_amount: debt_info.total_amount,
+        days_overdue: debt_info.days_overdue,
+        product: debt_info.product,
+      } : null,
     correction_feedback: correction_feedback || null,
   }
 

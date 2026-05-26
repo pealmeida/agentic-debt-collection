@@ -100,7 +100,7 @@ export function applyPipelineEvent(event, ctx) {
       }
       setAgentState((prev) => ({ ...prev, activeAgent: shortId }))
       publishTurnTrace(setAgentState, turnTraceRef)
-      addLog('info', `[${data.id}] Iniciando${data.model !== 'mock' ? ` (${data.model})` : ''}...`)
+      addLog('info', `[${data.id}] Iniciando${data.model ? ` (${data.model})` : ''}...`)
       break
     }
 

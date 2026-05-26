@@ -113,7 +113,7 @@ async function sendPrompt(page, text) {
 }
 
 async function switchMode(page, mode) {
-  const label = mode === 'CUSTOMER' ? 'Cliente' : 'Engineer'
+  const label = mode === 'CUSTOMER' ? 'Cliente' : 'Operador'
   await page.getByRole('tablist', { name: 'Selecionar visão' }).getByRole('tab', { name: new RegExp(label, 'i') }).click()
   await page.waitForTimeout(400)
 }
@@ -121,6 +121,12 @@ async function switchMode(page, mode) {
 async function setupPage(browser) {
   const context = await browser.newContext({ viewport: { width: 1400, height: 900 } })
   const page = await context.newPage()
+
+  await page.route('**/api/orchestrate', (route) => route.fulfill({
+    status: 503,
+    contentType: 'application/json',
+    body: JSON.stringify({ error: 'Forced browser fallback test mode', mock: true }),
+  }))
 
   await page.goto(BASE_URL, { waitUntil: 'networkidle' })
   await page.evaluate(() => sessionStorage.clear())

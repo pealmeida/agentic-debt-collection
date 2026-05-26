@@ -1,24 +1,8 @@
 /**
- * Mock MCP tools — deterministic responses that mirror what real MCP servers would return.
- * Each function returns { result, source, snippet } so the Inspector can show RAG context.
- *
- * When real MCP servers are implemented, swap these functions 1:1 — the contract is stable.
+ * MCP tool contracts used by the agents.
+ * Each function returns { result, source, snippet } so the Inspector can show
+ * auditable context without exposing sensitive fields.
  */
-
-const DEBT_DATABASE = {
-  'D-9982': {
-    debtor_name: 'João da Silva',
-    cpf_masked: '***.***.123-**',
-    total_amount: 1200.0,
-    original_amount: 1000.0,
-    days_overdue: 45,
-    due_date: '2026-04-11',
-    product: 'Crédito Pessoal',
-    last_contact: '2026-05-10',
-    previous_proposals: [],
-    status: 'OVERDUE',
-  },
-}
 
 const DISCOUNT_POLICIES = [
   { days_range: [0, 30], max_discount: 0.1, label: '10% — atraso leve' },
@@ -40,12 +24,21 @@ const CDC_GUIDELINES = [
   },
 ]
 
-export function getDebtStatus(debtId) {
-  const debt = DEBT_DATABASE[debtId] || DEBT_DATABASE['D-9982']
+export function getDebtStatus(debtData) {
+  const debt = normalizeDebtData(debtData)
+
+  if (!debt) {
+    return {
+      result: null,
+      source: 'urn:mcp:crm:debt_status',
+      snippet: 'Nenhum contexto de dívida foi fornecido pelo CRM/request. Motor não pode calcular proposta.',
+    }
+  }
+
   return {
     result: debt,
     source: 'urn:mcp:crm:debt_status',
-    snippet: `Dívida ${debtId}: R$ ${debt.total_amount} com ${debt.days_overdue} dias de atraso. Produto: ${debt.product}.`,
+    snippet: `Dívida ${debt.debt_id || 'sem-id'}: R$ ${debt.total_amount} com ${debt.days_overdue} dias de atraso. Produto: ${debt.product || 'não informado'}.`,
   }
 }
 
@@ -100,4 +93,33 @@ export function checkGuardrailViolations(text) {
   }
 
   return violations
+}
+
+function normalizeDebtData(debtData) {
+  if (!debtData || typeof debtData !== 'object') return null
+
+  const totalAmount = Number(debtData.total_amount)
+  const daysOverdue = Number(debtData.days_overdue)
+
+  if (!Number.isFinite(totalAmount) || totalAmount <= 0) return null
+  if (!Number.isFinite(daysOverdue) || daysOverdue < 0) return null
+
+  return {
+    debt_id: stringOrEmpty(debtData.debt_id),
+    debtor_name: stringOrEmpty(debtData.debtor_name),
+    total_amount: Math.round(totalAmount * 100) / 100,
+    original_amount: Number.isFinite(Number(debtData.original_amount))
+      ? Math.round(Number(debtData.original_amount) * 100) / 100
+      : null,
+    days_overdue: Math.round(daysOverdue),
+    due_date: stringOrEmpty(debtData.due_date),
+    product: stringOrEmpty(debtData.product),
+    last_contact: stringOrEmpty(debtData.last_contact),
+    previous_proposals: Array.isArray(debtData.previous_proposals) ? debtData.previous_proposals : [],
+    status: stringOrEmpty(debtData.status) || 'UNKNOWN',
+  }
+}
+
+function stringOrEmpty(value) {
+  return typeof value === 'string' ? value.trim() : ''
 }

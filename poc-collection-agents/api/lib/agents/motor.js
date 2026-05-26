@@ -1,8 +1,6 @@
 import { callOpenRouter, parseJSON } from '../openrouter.js'
 import { getDebtStatus, getDiscountPolicy, calculateAmortization } from '../tools.js'
 
-const DEBT_ID = 'D-9982'
-
 const MOTOR_SCHEMA = {
   type: 'object',
   properties: {
@@ -34,14 +32,40 @@ const MOTOR_SCHEMA = {
  * GP-12: never trusts LLM arithmetic — `calculateAmortization()` is the source of truth.
  */
 export async function run(state, { agent, openrouter }) {
-  const { detected_intent, sentiment, nlu_summary, message } = state
+  const { detected_intent, sentiment, nlu_summary, message, debt_data } = state
   const toolCalls = []
   const ragContext = []
 
-  const debtResult = getDebtStatus(DEBT_ID)
-  toolCalls.push({ name: 'get_debt_status', payload: JSON.stringify({ debt_id: DEBT_ID }), status: 200 })
+  const debtResult = getDebtStatus(debt_data)
+  toolCalls.push({
+    name: 'get_debt_status',
+    payload: JSON.stringify({ debt_id: debt_data?.debt_id || null, provided: !!debt_data }),
+    status: debtResult.result ? 200 : 422,
+  })
   ragContext.push({ source: debtResult.source, snippet: debtResult.snippet })
   const debt = debtResult.result
+
+  if (!debt) {
+    const reason = 'Sem contexto de dívida válido do CRM/request. Não é possível calcular proposta sem total_amount e days_overdue.'
+    return {
+      patch: {
+        calculated_proposal: null,
+        motor_tactic_note: 'Solicite ou selecione um caso CRM com valor total, dias em atraso e produto antes de negociar.',
+        motor_reason: reason,
+        debt_info: null,
+        policy_info: null,
+      },
+      trace: {
+        agent: 'agente_motor_acordo',
+        thought: `Proposta bloqueada: ${reason}`,
+        tools: toolCalls,
+        rag: ragContext,
+        tokens: 0,
+        usage: { prompt_tokens: 0, completion_tokens: 0, total_tokens: 0 },
+        latency_ms: 0,
+      },
+    }
+  }
 
   const policyResult = getDiscountPolicy(debt.days_overdue)
   toolCalls.push({ name: 'get_politicas_desconto', payload: JSON.stringify({ days_overdue: debt.days_overdue }), status: 200 })

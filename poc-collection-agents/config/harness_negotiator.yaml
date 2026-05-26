@@ -1,4 +1,4 @@
-version: "1.2"
+version: "1.3"
 domain: credit_collection
 
 # ─── Provider Configuration ───────────────────────────────────────────────────
@@ -22,7 +22,7 @@ providers:
 # ─── Active Profile ───────────────────────────────────────────────────────────
 # Selected at runtime. Override with env var OPENROUTER_MODEL_PROFILE.
 
-active_profile: gemini-flash-lite
+active_profile: openrouter-specialist
 
 # ─── Model Profiles ───────────────────────────────────────────────────────────
 # Each profile maps every agent role → run-config (model, temperature, JSON
@@ -41,6 +41,38 @@ active_profile: gemini-flash-lite
 #   claude_xml     → suggest XML thinking blocks (reserved for future Anthropic profile)
 
 model_profiles:
+  # ── OpenRouter specialist blend — production-oriented role routing ─────────
+  openrouter-specialist:
+    label: "OpenRouter Specialist Blend"
+    description: "Requested four-model OpenRouter blend: Gemini NLU, DeepSeek Motor, Qwen Empatia, Mistral Guardião."
+    provider: openrouter
+    agents:
+      agente_escuta_nlu:
+        model: google/gemini-2.5-flash-lite
+        temperature: 0.1
+        json_strategy: json_object
+        prompt_hints: gemini_flash
+        history_window: 6
+        pricing: { input_per_1m_usd: 0.10, output_per_1m_usd: 0.40 }
+      agente_motor_acordo:
+        model: deepseek/deepseek-v4-flash
+        temperature: 0.0
+        json_strategy: json_object
+        prompt_hints: strict_json
+        pricing: { input_per_1m_usd: 0.10, output_per_1m_usd: 0.20 }
+      agente_empatia_copywriter:
+        model: qwen/qwen3.6-flash
+        temperature: 0.55
+        json_strategy: text
+        prompt_hints: null
+        pricing: { input_per_1m_usd: 0.1875, output_per_1m_usd: 1.125 }
+      agente_guardiao_compliance:
+        model: mistralai/mistral-small-2603
+        temperature: 0.0
+        json_strategy: json_object
+        prompt_hints: strict_json
+        pricing: { input_per_1m_usd: 0.15, output_per_1m_usd: 0.60 }
+
   # ── Gemini 2.5 Flash Lite — fast, cheap, json_object friendly ──────────────
   gemini-flash-lite:
     label: "Gemini 2.5 Flash Lite"
@@ -192,6 +224,7 @@ agents:
       Sua função: calcular uma proposta financeiramente correta dentro dos limites da alçada.
 
       Regras:
+      0. Se não houver debt_data válido (total_amount e days_overdue), não invente valores. Defina can_propose=false.
       1. Respeite SEMPRE o desconto máximo da tabela de alçadas. Nunca supere o limite.
       2. Se o intento for "Ameaça Jurídica", NÃO proponha desconto. Defina can_propose=false e explique.
       3. Se a proposta do cliente estiver fora da alçada, ofereça a proposta no teto máximo.
@@ -225,6 +258,7 @@ agents:
         * Include alertas em CAPS quando há riscos de compliance
 
       CRÍTICO: Nunca mencione "processo", "penhora", "sujar nome", "polícia" ou termos coercitivos.
+      Se calculated_proposal estiver ausente por falta de contexto de dívida, não invente valor, desconto, parcelas ou vencimento; peça o contexto CRM necessário de forma objetiva.
       Se receber correction_feedback, reescreva completamente evitando os problemas apontados.
 
       Responda com o texto final diretamente (sem JSON wrapper).
