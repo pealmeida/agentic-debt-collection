@@ -138,6 +138,8 @@ npm run dev
 
 Abra a URL exibida pelo Vite (tipicamente `http://localhost:5173`).
 
+Para demonstrar features com mensagens prontas, use o [Guia de prompts](prompt_guide.md).
+
 ## Deploy na Vercel
 
 1. Faça push deste código para um repositório no GitHub.

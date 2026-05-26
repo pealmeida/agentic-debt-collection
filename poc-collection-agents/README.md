@@ -54,8 +54,9 @@ Abra `http://localhost:5173`. Sem chave, a POC funciona em modo simulação.
 
 1. Configure sua chave em **⚙️ Configurações** (canto superior direito)
 2. Ou use o modo BYOK — a chave fica no seu localStorage
+3. Use o **[Guia de prompts](docs/prompt_guide.md)** — mensagens prontas para copiar e colar
 
-Cenários recomendados para demonstração:
+Cenários rápidos (detalhes e roteiro de 5 min no guia):
 
 | Cenário | Modo | Input sugerido |
 |---------|------|----------------|
@@ -137,6 +138,7 @@ poc-collection-agents/
 
 ## Documentação
 
+- [Guia de prompts](docs/prompt_guide.md) — copiar/colar para demonstrar cada feature
 - [AGENTS.md](AGENTS.md) — Índice e mapa para agentes de IA
 - [PRD](docs/prd_requisitos.md)
 - [Arquitetura](docs/arquitetura_poc.md)

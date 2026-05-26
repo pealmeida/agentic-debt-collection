@@ -51,6 +51,7 @@ poc-collection-agents/
 │       ├── EngineerCockpit.jsx  ← Cockpit Collections Engineer (Observability + Harness Studio)
 │       └── SettingsModal.jsx    ← BYOK (chave OpenRouter do usuário)
 └── docs/
+    ├── prompt_guide.md          ← prompts prontos para demo (copiar/colar)
     ├── prd_requisitos.md        ← PRD completo
     ├── arquitetura_poc.md       ← diagrama e stack
     ├── golden_principles.md     ← invariantes mecânicas (leia antes de editar agentes)
@@ -96,6 +97,7 @@ O Guardião é **sempre o último nó**. Nenhuma resposta chega ao usuário sem 
 
 ## Ver também
 
+- [Guia de prompts](docs/prompt_guide.md)
 - [PRD e requisitos](docs/prd_requisitos.md)
 - [Arquitetura](docs/arquitetura_poc.md)
 - [Princípios de ouro](docs/golden_principles.md)
