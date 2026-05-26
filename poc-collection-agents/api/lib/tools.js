@@ -101,11 +101,3 @@ export function checkGuardrailViolations(text) {
 
   return violations
 }
-
-export const TOOLS = {
-  get_debt_status: ({ debt_id }) => getDebtStatus(debt_id),
-  get_politicas_desconto: ({ days_overdue }) => getDiscountPolicy(days_overdue),
-  calculate_amortization: (args) => calculateAmortization(args),
-  get_cdc_guidelines: () => getCdcGuidelines(),
-  check_guardrail_violations: ({ text }) => checkGuardrailViolations(text),
-}

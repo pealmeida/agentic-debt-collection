@@ -1,6 +1,6 @@
 # Arquitetura — POC Multiagente de Cobrança
 
-Este repositório contém o código-fonte da interface e as especificações arquiteturais para a orquestração de múltiplos agentes de IA no contexto de recuperação de crédito.
+Este repositório contém o código-fonte completo (UI + orquestrador serverless) e as especificações arquiteturais para a orquestração de múltiplos agentes de IA no contexto de recuperação de crédito.
 
 ## Estrutura do Repositório
 
@@ -21,13 +21,17 @@ poc-collection-agents/
 │  WhatsApp / CRM ➔ Schema Unificado de Mensagens                 │
 ├──────────────────────────────────────────────────────────────────┤
 │  UI (React/Vite) — src/App.jsx                                    │
-│  Chat dual-persona │ Inspetor IA │ Grafo de agentes │ Logs      │
+│  Chat dual-persona │ Inspetor IA │ Grafo │ Logs │ Cockpit        │
 ├──────────────────────────────────────────────────────────────────┤
-│  Core — State Graph / LangGraph (fase 1)                          │
+│  Security Gate (Layer 0) — api/lib/security.js                    │
+│  Token Flooding │ Prompt Injection │ Jailbreak │ Leakage Scan    │
+├──────────────────────────────────────────────────────────────────┤
+│  Orchestrator (Vercel Function) — api/orchestrate.js              │
 │  Escuta NLU ➔ Motor Acordo ➔ Empatia ➔ Guardião Compliance     │
+│  SSE streaming │ self-correction loop                             │
 ├──────────────────────────────────────────────────────────────────┤
-│  Harness + MCP + RAG                                              │
-│  config/harness_negotiator.yaml                                   │
+│  Harness executável + MCP mocks + RAG                             │
+│  config/harness_negotiator.yaml │ api/lib/tools.js                │
 └──────────────────────────────────────────────────────────────────┘
 ```
 
@@ -39,18 +43,23 @@ Converte mensagens do WhatsApp/CRM para o schema unificado. O parâmetro `user_r
 
 **Estado atual:** mock local na UI.
 
-### 2. Core (State Graph)
+### 2. Core (Orquestrador serverless)
 
-Orquestrador LangGraph com 4 agentes definidos no harness:
+Orquestrador in-house (sem framework) em `api/orchestrate.js`. 4 agentes definidos
+no harness YAML, executados sequencialmente via OpenRouter:
 
-| Agente | ID | Model | MCP / Tools |
-|--------|-----|-------|-------------|
-| Escuta Ativa | `agente_escuta_nlu` | gpt-4o-mini | NLU, sentimento |
-| Motor de Acordo | `agente_motor_acordo` | gpt-4o | `mcp:crm:debt_status`, `mcp:vector-store:politicas_desconto`, `calculate_amortization` |
-| Empatia | `agente_empatia_copywriter` | gpt-4o-mini | Persona por `user_role` |
-| Guardião | `agente_guardiao_compliance` | gpt-4o | `mcp:vector-store:cdc_guidelines`, guardrails regex |
+| Agente | ID | Model padrão | MCP / Tools |
+|--------|-----|--------------|-------------|
+| Escuta Ativa | `agente_escuta_nlu` | openai/gpt-4o-mini | NLU + sentimento (structured output) |
+| Motor de Acordo | `agente_motor_acordo` | openai/gpt-4o | `get_debt_status`, `get_politicas_desconto`, `calculate_amortization` |
+| Empatia | `agente_empatia_copywriter` | openai/gpt-4o-mini | Persona por `user_role` |
+| Guardião | `agente_guardiao_compliance` | openai/gpt-4o | `check_guardrail_violations`, `get_cdc_guidelines`, leakage scan |
 
-**Estado atual:** pipeline simulado no frontend com delays e keyword matching.
+Cada agente é um módulo isolado em `api/lib/agents/` retornando `{ patch, trace }`.
+O loop Empatia → Guardião pode disparar self-correction até `max_attempts` vezes (config no YAML).
+
+**Estado atual:** pipeline real via OpenRouter (com BYOK opcional) + fallback simulado
+no frontend cobrindo 100% das features quando não há chave configurada.
 
 ### 3. Harness e RAG
 
@@ -112,10 +121,12 @@ sequenceDiagram
 | Camada | Tecnologia |
 |--------|------------|
 | UI | React 18, Vite 6, Tailwind 3, Lucide |
-| Config | YAML (`harness_negotiator.yaml`) |
-| Orquestrador (fase 1) | LangGraph |
-| Dados | MCP (sem acesso direto à BD) |
-| Deploy | Vercel |
+| Config (harness) | YAML (`harness_negotiator.yaml`), parsed via `js-yaml` |
+| Orquestrador | Node.js puro em Vercel Functions, SSE streaming |
+| LLM provider | OpenRouter (modelos sobrescrevíveis via YAML) |
+| Segurança | `api/lib/security.js` — token flood / injection / jailbreak / leakage |
+| Dados | Contrato MCP (mocks determinísticos em `api/lib/tools.js`) |
+| Deploy | Vercel (region `gru1`, `maxDuration: 30s`) |
 
 ## Como testar localmente
 
@@ -137,7 +148,8 @@ Abra a URL exibida pelo Vite (tipicamente `http://localhost:5173`).
 
 ## Próximos Passos
 
-1. Extrair pipeline simulado de `App.jsx` para serviço LangGraph
-2. Carregar `harness_negotiator.yaml` no orquestrador
-3. Implementar MCP servers (`debt_status`, `politicas_desconto`, `cdc_guidelines`)
-4. Substituir keyword matching por NLU/LLM real
+1. Substituir mocks MCP (`api/lib/tools.js`) por servers MCP reais (`debt_status`, `politicas_desconto`, `cdc_guidelines`)
+2. Persistência de sessões (atualmente em `sessionStorage` do browser)
+3. Adapters reais para WhatsApp Cloud API e Twilio
+4. Runner automatizado de evals (`evals.scenarios`) com gate em CI
+5. Migrar de orquestrador in-house para LangGraph quando houver mais ramos condicionais

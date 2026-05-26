@@ -120,36 +120,35 @@ export function detectPromptInjection(text) {
 // ─── Jailbreak Detection ──────────────────────────────────────────────────────
 
 const JAILBREAK_PATTERNS = [
-  // Persona hijacking
-  { re: /pretend\s+(you\s+are|to\s+be)\s+(a\s+|an\s+)?/i, label: 'persona-hijack' },
-  { re: /act\s+as\s+(a\s+|an\s+)?(unrestricted|uncensored|free|jailbroken|unfiltered|evil|DAN)/i, label: 'persona-hijack' },
-  { re: /you\s+are\s+now\s+(a\s+|an\s+)?(unrestricted|DAN|evil|free|jailbroken|uncensored)/i, label: 'persona-hijack' },
+  // Persona hijacking — only flag when "pretend" is paired with a danger keyword
+  { re: /pretend\s+(?:you\s+are|to\s+be)\s+(?:a\s+|an\s+)?(?:unrestricted|uncensored|free|jailbroken|unfiltered|evil|DAN|without\s+restrictions)/i, label: 'persona-hijack' },
+  { re: /act\s+as\s+(?:a\s+|an\s+)?(?:unrestricted|uncensored|free|jailbroken|unfiltered|evil|DAN)/i, label: 'persona-hijack' },
+  { re: /you\s+are\s+now\s+(?:a\s+|an\s+)?(?:unrestricted|DAN|evil|free|jailbroken|uncensored)/i, label: 'persona-hijack' },
   { re: /\bDAN\b/, label: 'DAN-jailbreak' },
   { re: /do\s+anything\s+now/i, label: 'DAN-jailbreak' },
   // Restriction bypass
   { re: /you\s+have\s+no\s+restrictions/i, label: 'restriction-bypass' },
-  { re: /you['']?ve?\s+been\s+freed?\s+from\s+(your\s+)?(restrictions|guidelines|rules)/i, label: 'restriction-bypass' },
-  { re: /without\s+(your\s+|any\s+)?ethical\s+(guidelines?|restrictions?|constraints?)/i, label: 'ethical-bypass' },
-  { re: /ignore\s+(your\s+)?(guardrails?|restrictions?|rules?|constraints?|filters?)/i, label: 'guardrail-bypass' },
-  { re: /not\s+bound\s+by\s+(your\s+)?(rules?|restrictions?|guidelines?|ethics?)/i, label: 'restriction-bypass' },
+  { re: /you['']?ve?\s+been\s+freed?\s+from\s+(?:your\s+)?(?:restrictions|guidelines|rules)/i, label: 'restriction-bypass' },
+  { re: /without\s+(?:your\s+|any\s+)?ethical\s+(?:guidelines?|restrictions?|constraints?)/i, label: 'ethical-bypass' },
+  { re: /ignore\s+(?:your\s+)?(?:guardrails?|restrictions?|rules?|constraints?|filters?)/i, label: 'guardrail-bypass' },
+  { re: /not\s+bound\s+by\s+(?:your\s+)?(?:rules?|restrictions?|guidelines?|ethics?)/i, label: 'restriction-bypass' },
   // Hypothetical framing to bypass safety
   { re: /hypothetically[\s\S]{0,30}no\s+restrictions/i, label: 'hypothetical-bypass' },
-  { re: /in\s+(this\s+|a\s+)?hypothetical\s+(scenario|world|universe)[\s\S]{0,50}(unrestricted|no\s+rules?|anything)/i, label: 'hypothetical-bypass' },
-  { re: /let['']?s\s+roleplay[\s\S]{0,50}(no\s+rules?|unrestricted|uncensored)/i, label: 'roleplay-bypass' },
+  { re: /in\s+(?:this\s+|a\s+)?hypothetical\s+(?:scenario|world|universe)[\s\S]{0,50}(?:unrestricted|no\s+rules?|anything)/i, label: 'hypothetical-bypass' },
+  { re: /let['']?s\s+roleplay[\s\S]{0,50}(?:no\s+rules?|unrestricted|uncensored)/i, label: 'roleplay-bypass' },
   // Developer/debug mode tricks
   { re: /developer\s+mode/i, label: 'developer-mode' },
   { re: /jailbreak/i, label: 'explicit-jailbreak' },
   { re: /god\s+mode/i, label: 'mode-bypass' },
-  { re: /opposite\s+day[\s\S]{0,30}(rules?|restrictions?)\s+don['']?t\s+apply/i, label: 'opposite-day' },
+  { re: /opposite\s+day[\s\S]{0,30}(?:rules?|restrictions?)\s+don['']?t\s+apply/i, label: 'opposite-day' },
   // Output format tricks to leak system state
-  { re: /respond\s+(only\s+)?in\s+(base64|hex|rot13|encoded)/i, label: 'encoding-evasion' },
-  { re: /translate\s+(your\s+)?(system\s+)?prompt\s+to/i, label: 'prompt-translation-leak' },
+  { re: /respond\s+(?:only\s+)?in\s+(?:base64|hex|rot13|encoded)/i, label: 'encoding-evasion' },
+  { re: /translate\s+(?:your\s+)?(?:system\s+)?prompt\s+to/i, label: 'prompt-translation-leak' },
   // Portuguese jailbreak variants
-  { re: /modo\s+(desenvolvedor|irrestrito|sem\s+restrições)/i, label: 'mode-bypass-pt' },
-  { re: /finja\s+(que\s+)?(você\s+é|ser)\s+(um\s+|uma\s+)?(IA\s+)?sem\s+restrições/i, label: 'persona-hijack-pt' },
-  { re: /ignore\s+(seus?\s+)?(guardrails|filtros|restrições)/i, label: 'guardrail-bypass-pt' },
-  { re: /sem\s+(guardrails?|restrições|filtros|regras)/i, label: 'restriction-bypass-pt' },
-  { re: /jailbreak/i, label: 'explicit-jailbreak-pt' },
+  { re: /modo\s+(?:desenvolvedor|irrestrito|sem\s+restrições)/i, label: 'mode-bypass-pt' },
+  { re: /finja\s+(?:que\s+)?(?:você\s+é|ser)\s+(?:um\s+|uma\s+)?(?:IA\s+)?sem\s+restrições/i, label: 'persona-hijack-pt' },
+  { re: /ignore\s+(?:seus?\s+)?(?:guardrails|filtros|restrições)/i, label: 'guardrail-bypass-pt' },
+  { re: /sem\s+(?:guardrails?|restrições|filtros|regras)/i, label: 'restriction-bypass-pt' },
 ]
 
 export function detectJailbreak(text) {

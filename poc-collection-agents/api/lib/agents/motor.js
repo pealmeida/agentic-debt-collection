@@ -9,7 +9,7 @@ const DEBT_ID = 'D-9982'
  * If the intent signals legal threat, it defers proposal calculation and flags for de-escalation.
  */
 export async function run(state, { agent, openrouter }) {
-  const { detected_intent, sentiment, nlu_summary, history = [], message } = state
+  const { detected_intent, sentiment, nlu_summary, message } = state
   const toolCalls = []
   const ragContext = []
 
@@ -80,20 +80,38 @@ export async function run(state, { agent, openrouter }) {
     tactic_note: '',
   })
 
-  // If LLM says we can propose, also run the amortization tool to confirm math
+  // If LLM says we can propose, recompute math with hard safety bounds.
+  // GP-12: never trust LLM arithmetic; clamp discount rate to alçada max.
   if (parsed.can_propose && parsed.proposal) {
+    const rawDiscount = Number(parsed.proposal.discount_rate) || policy.max_discount
+    const safeDiscount = Math.max(0, Math.min(rawDiscount, policy.max_discount))
+    const wasClamped = rawDiscount > policy.max_discount
+
+    const rawInstallments = Math.round(Number(parsed.proposal.installments)) || 3
+    const safeInstallments = Math.max(1, Math.min(rawInstallments, 12))
+
     const amortResult = calculateAmortization({
       principal: debt.total_amount,
-      discount: parsed.proposal.discount_rate || policy.max_discount,
-      installments: parsed.proposal.installments || 3,
+      discount: safeDiscount,
+      installments: safeInstallments,
     })
+
     toolCalls.push({
       name: 'calculate_amortization',
-      payload: JSON.stringify({ principal: debt.total_amount, discount: policy.max_discount }),
+      payload: JSON.stringify({ principal: debt.total_amount, discount: safeDiscount, installments: safeInstallments, clamped: wasClamped }),
       status: 200,
     })
     ragContext.push({ source: amortResult.source, snippet: amortResult.snippet })
-    // Trust the tool math over LLM arithmetic
+
+    if (wasClamped) {
+      toolCalls.push({
+        name: 'security:discount_clamped',
+        payload: JSON.stringify({ requested: rawDiscount, applied: policy.max_discount, policy: policy.label }),
+        status: 200,
+      })
+    }
+
+    // Replace the proposal with tool-computed numbers (authoritative)
     parsed.proposal = { ...parsed.proposal, ...amortResult.result }
   }
 

@@ -33,11 +33,23 @@ poc-collection-agents/
 │           ├── empatia.js       ← Copywriter (persona CUSTOMER/AGENT)
 │           └── guardiao.js      ← Compliance (regex + LLM-as-judge)
 ├── src/
-│   ├── App.jsx                  ← UI React principal
-│   ├── services/orchestrator.js ← cliente SSE + fallback simulação
+│   ├── App.jsx                  ← composição de alto nível (~280 linhas)
+│   ├── constants.js             ← MODES, PIPELINE_STEPS, SUGGESTIONS, INITIAL_AGENT_STATE
+│   ├── utils.js                 ← formatTime, session helpers, getStepStatus, downloadJSON
+│   ├── main.jsx                 ← React entrypoint
+│   ├── shared/security.js       ← re-export client-side dos detectores de segurança
+│   ├── services/
+│   │   ├── orchestrator.js      ← cliente SSE + fallback simulação
+│   │   ├── fallback-scenarios.js← 7 cenários determinísticos para demo offline
+│   │   └── pipeline-events.js   ← handler que aplica eventos SSE no state React
 │   └── components/
-│       ├── SettingsModal.jsx    ← BYOK (chave OpenRouter do usuário)
-│       └── EngineerCockpit.jsx  ← Cockpit Collections Engineer (Observability + Harness Studio)
+│       ├── ChatMessage.jsx      ← bolha de mensagem (todas as variantes)
+│       ├── ModeSwitchBar.jsx    ← tabs Cliente / Engineer
+│       ├── PipelineMiniBar.jsx  ← mini-progresso (mobile)
+│       ├── SidebarPanel.jsx     ← painel direito (Grafo / Inspetor / Cockpit)
+│       ├── InspectorPanel.jsx   ← terminal dark de Thought/Tools/RAG
+│       ├── EngineerCockpit.jsx  ← Cockpit Collections Engineer (Observability + Harness Studio)
+│       └── SettingsModal.jsx    ← BYOK (chave OpenRouter do usuário)
 └── docs/
     ├── prd_requisitos.md        ← PRD completo
     ├── arquitetura_poc.md       ← diagrama e stack

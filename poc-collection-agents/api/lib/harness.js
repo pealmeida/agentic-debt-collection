@@ -1,25 +1,23 @@
-import { readFileSync } from 'fs'
+import { readFileSync, statSync } from 'fs'
 import { join, dirname } from 'path'
 import { fileURLToPath } from 'url'
 import yaml from 'js-yaml'
 
 const __dirname = dirname(fileURLToPath(import.meta.url))
+const HARNESS_PATH = join(__dirname, '../../config/harness_negotiator.yaml')
 
 let _cachedHarness = null
-let _cachedMtime = null
+let _cachedMtimeMs = null
 
 function loadHarness() {
-  const harnessPath = join(__dirname, '../../config/harness_negotiator.yaml')
-  const stat = readFileSync(harnessPath)
-  const raw = stat.toString()
+  // Use file mtime as cache key — robust across content changes that preserve length.
+  const mtimeMs = statSync(HARNESS_PATH).mtimeMs
+  if (_cachedHarness && _cachedMtimeMs === mtimeMs) return _cachedHarness
 
-  // In dev, bust cache if file changed (simple length check)
-  if (_cachedHarness && _cachedMtime === raw.length) return _cachedHarness
-
-  const parsed = yaml.load(raw)
-  _cachedHarness = parsed
-  _cachedMtime = raw.length
-  return parsed
+  const raw = readFileSync(HARNESS_PATH, 'utf8')
+  _cachedHarness = yaml.load(raw)
+  _cachedMtimeMs = mtimeMs
+  return _cachedHarness
 }
 
 export function getHarness() {
@@ -52,9 +50,4 @@ export function getGuardrails() {
 export function getEvalScenarios() {
   const h = loadHarness()
   return h.evals?.scenarios || []
-}
-
-export function getProviderConfig() {
-  const h = loadHarness()
-  return h.providers?.default || { type: 'openrouter', base_url: 'https://openrouter.ai/api/v1' }
 }

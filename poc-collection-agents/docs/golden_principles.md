@@ -98,6 +98,25 @@ Referência: [Collections Engineer — Monest](https://monest.com.br/collections
 
 ---
 
+## GP-12 — Não confie em aritmética do LLM
+
+O Motor recebe um JSON estruturado do LLM, mas **recomputa** o valor da proposta usando
+`calculateAmortization()` antes de retornar. Além disso, `discount_rate` é **clampado**
+ao máximo da alçada vigente:
+
+```js
+const safeDiscount = Math.max(0, Math.min(rawDiscount, policy.max_discount))
+```
+
+Se o LLM tentar exceder a alçada (intencionalmente via injeção ou por engano), o sistema
+loga `security:discount_clamped` na trace e aplica o teto. Mesma lógica para `installments`
+(clamp em `[1, 12]`).
+
+**Por quê:** mesmo com `temperature: 0`, sob ataques de prompt injection o LLM pode propor
+descontos absurdos. A camada matemática garante invariantes financeiros.
+
+---
+
 ## GP-11 — Security gate é Layer 0, não opcional
 
 O `runSecurityGate()` em `api/lib/security.js` executa **antes de qualquer chamada LLM**.

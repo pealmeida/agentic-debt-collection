@@ -6,7 +6,7 @@ import { callOpenRouter, parseJSON } from '../openrouter.js'
  * Only receives: message + history (no debt data yet — minimal context per progressive disclosure principle).
  */
 export async function run(state, { agent, openrouter }) {
-  const { message, history = [], user_role } = state
+  const { message, history = [] } = state
 
   const historyMessages = history.slice(-6).map((m) => ({
     role: m.role === 'user' ? 'user' : 'assistant',

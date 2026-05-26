@@ -205,6 +205,21 @@ assert('regex returns CDC article', violations[0]?.article === 'Art. 42 CDC')
 const cleanViolations = checkGuardrailViolations('Vamos negociar de forma amigável')
 assert('clean text has no violations', cleanViolations.length === 0)
 
+section('Tools: Safety bounds')
+
+// GP-12 safety: amortization must clamp inputs the orchestrator already validates,
+// but ensure the math is robust even with edge inputs.
+const zeroDiscount = calculateAmortization({ principal: 1000, discount: 0, installments: 1 })
+assert('zero discount returns full principal', zeroDiscount.result.total === 1000)
+
+const halfDiscount = calculateAmortization({ principal: 1000, discount: 0.5, installments: 2 })
+assert('50% discount halves the total', halfDiscount.result.total === 500)
+assert('50% discount divides installments', halfDiscount.result.installment_value === 250)
+
+// Floating point hardening: 0.1 + 0.2 problem
+const trickyDiscount = calculateAmortization({ principal: 100, discount: 0.3, installments: 3 })
+assert('rounding produces clean cents', Number.isInteger(trickyDiscount.result.installment_value * 100))
+
 // ─── Fallback Scenarios ──────────────────────────────────────────────────────
 
 section('Fallback: Scenario Detector')
