@@ -1,14 +1,26 @@
 /**
  * Orchestrator service — connects the frontend to /api/orchestrate via SSE.
- * Falls back to the local simulation if the backend is unavailable (no key / network error).
  *
- * Usage:
- *   for await (const event of runPipeline(message, ctx)) {
- *     // event: { type, data }
- *   }
+ * If the backend is unavailable (no API key, network error, or 503 with mock=true),
+ * falls back to a rich local simulation that exercises every feature:
+ *   - Security gate (jailbreak, prompt injection, token flooding)
+ *   - Scenario detection (acceptance, threat, unemployment, more installments, etc.)
+ *   - Self-correction loop visualization
+ *   - Realistic token/latency/cost numbers
+ *   - Multi-turn context awareness
  */
 
-const PIPELINE_STEPS = ['agente_escuta_nlu', 'agente_motor_acordo', 'agente_empatia_copywriter', 'agente_guardiao_compliance']
+import { runSecurityGate } from '../shared/security.js'
+import { detectScenario, buildScenarioOutput, simAgentMetrics } from './fallback-scenarios.js'
+
+const DEBT_INFO_FULL = {
+  debtor_name: 'João da Silva',
+  cpf_masked: '***.***.123-**',
+  total_amount: 1200.0,
+  days_overdue: 45,
+  product: 'Crédito Pessoal',
+  status: 'OVERDUE',
+}
 
 function getByokKey() {
   try {
@@ -36,7 +48,7 @@ export async function* runPipeline(message, { sessionId, userRole, history = [] 
     })
   } catch (networkErr) {
     yield { type: 'fallback', data: { reason: 'network_error' } }
-    yield* runLocalFallback(message, userRole)
+    yield* runLocalFallback(message, userRole, history)
     return
   }
 
@@ -46,7 +58,7 @@ export async function* runPipeline(message, { sessionId, userRole, history = [] 
 
     if (body.mock) {
       yield { type: 'fallback', data: { reason: 'no_api_key' } }
-      yield* runLocalFallback(message, userRole)
+      yield* runLocalFallback(message, userRole, history)
       return
     }
 
@@ -94,153 +106,227 @@ export function formatSecurityThreat(threat) {
   return labels[threat] || threat
 }
 
-// ─── Local fallback simulation (used when no API key is configured) ───────────
-
-const FALLBACK_DELAY = 800
+// ─── Local fallback simulation ───────────────────────────────────────────────
 
 async function delay(ms) {
   return new Promise((r) => setTimeout(r, ms))
 }
 
-async function* runLocalFallback(message, userRole) {
-  const lower = message.toLowerCase()
-  const isThreat =
-    lower.includes('processar') || lower.includes('procon') || lower.includes('advogado') || lower.includes('agressivo')
-  const isDesperate =
-    lower.includes('desempregado') || lower.includes('350') || lower.includes('500') || lower.includes('sem dinheiro')
+/** Mirror of the backend pipeline, fully simulated. */
+async function* runLocalFallback(message, userRole, history = []) {
+  // ── Layer 0: Security gate (same module as the backend) ────────────────────
+  const securityResult = runSecurityGate(message, history)
 
-  // NLU
+  if (!securityResult.safe && securityResult.highestSeverity === 'HIGH') {
+    // Brief delay so the user sees something happen
+    await delay(300)
+
+    const isFlood = securityResult.threats.some((t) => t.threat === 'TOKEN_FLOODING')
+    const blockMsg = isFlood
+      ? 'Mensagem muito longa ou com padrões de repetição. Por favor, tente novamente com uma mensagem mais curta.'
+      : 'Sua mensagem contém padrões não permitidos pelo sistema de segurança. Por favor, reformule sua mensagem.'
+
+    yield {
+      type: 'security_block',
+      data: {
+        threats: securityResult.threats.map((t) => ({
+          threat: t.threat,
+          severity: t.severity,
+          detail: t.detail,
+        })),
+        user_message: blockMsg,
+        simulated: true,
+      },
+    }
+    return
+  }
+
+  // ── Detect scenario for this turn ──────────────────────────────────────────
+  const scenarioMatch = detectScenario(message, history)
+  const scenario = buildScenarioOutput(scenarioMatch, userRole)
+
+  // Cumulative metrics for the final observability payload
+  let totalTokens = 0
+  let totalLatency = 0
+
+  // ── Agent 1: NLU ───────────────────────────────────────────────────────────
+  const nluMetrics = simAgentMetrics('nlu')
+  totalTokens += nluMetrics.tokens
+  totalLatency += nluMetrics.latency_ms
+
   yield { type: 'agent_start', data: { id: 'agente_escuta_nlu', model: 'mock' } }
-  await delay(FALLBACK_DELAY)
-  const intent = isThreat
-    ? 'Ameaça Jurídica / Risco Legal Elevado'
-    : isDesperate
-    ? 'Dificuldade Extrema / Proposta Fora de Alçada'
-    : 'Pedido de desconto / Dificuldade Financeira'
-  const sentiment = isThreat ? 'agressivo' : isDesperate ? 'desesperado' : 'ansioso'
+  await delay(Math.min(nluMetrics.latency_ms, 1000))
+
   yield {
     type: 'agent_end',
     data: {
       id: 'agente_escuta_nlu',
-      patch: { detected_intent: intent, sentiment },
+      patch: { detected_intent: scenario.intent, sentiment: scenario.sentiment },
       trace: {
-        thought: `[SIMULADO] Intent: "${intent}" | Sentimento: ${sentiment}`,
+        thought: `[SIM] ${scenario.nluThought}`,
         tools: [],
         rag: [],
-        tokens: 0,
-        latency_ms: FALLBACK_DELAY,
+        tokens: nluMetrics.tokens,
+        latency_ms: nluMetrics.latency_ms,
       },
     },
   }
-  yield { type: 'state_update', data: { detected_intent: intent, sentiment } }
+  yield { type: 'state_update', data: { detected_intent: scenario.intent, sentiment: scenario.sentiment } }
 
-  // Motor
+  // ── Agent 2: Motor de Acordo ──────────────────────────────────────────────
+  const motorMetrics = simAgentMetrics('motor')
+  totalTokens += motorMetrics.tokens
+  totalLatency += motorMetrics.latency_ms
+
   yield { type: 'agent_start', data: { id: 'agente_motor_acordo', model: 'mock' } }
-  await delay(FALLBACK_DELAY)
-  let proposal = null
-  const motorTools = [{ name: 'get_debt_status', payload: "{ debt_id: 'D-9982' }", status: 200 }]
-  const motorRag = [{ source: 'tabela_alcadas_2026.csv', snippet: 'Atraso 31-60 dias: Margem máx = 30%.' }]
-
-  if (!isThreat) {
-    motorTools.push({ name: 'calculate_amortization', payload: '{ principal: 1200, discount: 0.3 }', status: 200 })
-    proposal = isDesperate
-      ? { total: 840, discount_rate: 0.3, desconto: '30%', installments: 4, installment_value: 210 }
-      : { total: 840, discount_rate: 0.3, desconto: '30%', installments: 3, installment_value: 280 }
-  }
+  await delay(Math.min(motorMetrics.latency_ms, 1200))
 
   yield {
     type: 'agent_end',
     data: {
       id: 'agente_motor_acordo',
-      patch: { calculated_proposal: proposal },
+      patch: {
+        calculated_proposal: scenario.proposal,
+        debt_info: DEBT_INFO_FULL,
+      },
       trace: {
-        thought: proposal
-          ? `[SIMULADO] Proposta: R$ ${proposal.total} (${proposal.desconto} off) em ${proposal.installments}x`
-          : '[SIMULADO] Proposta bloqueada — ameaça jurídica detectada.',
-        tools: motorTools,
-        rag: motorRag,
-        tokens: 0,
-        latency_ms: FALLBACK_DELAY,
+        thought: `[SIM] ${scenario.motorThought}`,
+        tools: scenario.motorTools,
+        rag: scenario.motorRag,
+        tokens: motorMetrics.tokens,
+        latency_ms: motorMetrics.latency_ms,
       },
     },
   }
 
+  // ── Agents 3+4: Empatia → Guardião (with optional self-correction) ────────
+  let selfCorrections = 0
+  const shouldSelfCorrect = scenario.triggerSelfCorrection
+
+  // First pass
+  yield* runEmpatiaGuardiaoPass({
+    scenario,
+    userRole,
+    isFirstPass: true,
+    forceReject: shouldSelfCorrect,
+    metricsAccumulator: (t, l) => { totalTokens += t; totalLatency += l },
+  })
+
+  if (shouldSelfCorrect) {
+    selfCorrections++
+    yield {
+      type: 'self_correction',
+      data: {
+        attempt: 1,
+        feedback: 'Tom levemente defensivo detectado. Reescrevendo com mais empatia (Self-Correction Loop).',
+      },
+    }
+    await delay(400)
+
+    // Second pass — now approved
+    yield* runEmpatiaGuardiaoPass({
+      scenario,
+      userRole,
+      isFirstPass: false,
+      forceReject: false,
+      metricsAccumulator: (t, l) => { totalTokens += t; totalLatency += l },
+    })
+  }
+
+  // ── Final emission ─────────────────────────────────────────────────────────
+  const estimatedCostUsd = (totalTokens / 1000) * 0.008
+
+  yield {
+    type: 'final',
+    data: {
+      response: scenario.response,
+      compliance_status: scenario.complianceStatus,
+      compliance_risk: scenario.complianceRisk,
+      calculated_proposal: scenario.proposal,
+      detected_intent: scenario.intent,
+      sentiment: scenario.sentiment,
+      self_corrections: selfCorrections,
+      observability: {
+        total_tokens: totalTokens,
+        total_latency_ms: totalLatency,
+        estimated_cost_usd: Math.round(estimatedCostUsd * 10000) / 10000,
+        agents_run: ['agente_escuta_nlu', 'agente_motor_acordo', 'agente_empatia_copywriter', 'agente_guardiao_compliance'],
+        mode: 'simulation',
+        scenario_id: scenario.id,
+      },
+    },
+  }
+}
+
+async function* runEmpatiaGuardiaoPass({ scenario, userRole, isFirstPass, forceReject, metricsAccumulator }) {
   // Empatia
+  const empMetrics = simAgentMetrics('empatia')
+  metricsAccumulator(empMetrics.tokens, empMetrics.latency_ms)
+
   yield { type: 'agent_start', data: { id: 'agente_empatia_copywriter', model: 'mock' } }
-  await delay(FALLBACK_DELAY)
+  await delay(Math.min(empMetrics.latency_ms, 900))
+
   yield {
     type: 'agent_end',
     data: {
       id: 'agente_empatia_copywriter',
       patch: {},
       trace: {
-        thought: `[SIMULADO] Formatando para persona [${userRole}]`,
+        thought: isFirstPass
+          ? `[SIM] ${scenario.empatiaThought}`
+          : `[SIM] Reescrevendo após feedback do Guardião — tom mais empático e neutro.`,
         tools: [],
         rag: [],
-        tokens: 0,
-        latency_ms: FALLBACK_DELAY,
+        tokens: empMetrics.tokens,
+        latency_ms: empMetrics.latency_ms,
       },
     },
   }
 
   // Guardião
-  yield { type: 'agent_start', data: { id: 'agente_guardiao_compliance', model: 'mock' } }
-  await delay(FALLBACK_DELAY)
-  yield {
-    type: 'agent_end',
-    data: {
-      id: 'agente_guardiao_compliance',
-      patch: { compliance_status: 'APROVADO' },
-      trace: {
-        thought: '[SIMULADO] Verificação CDC concluída. Nenhuma violação encontrada.',
-        tools: [{ name: 'mcp:legal_guardrail/check_cdc', payload: '{ check_coercion: true }', status: 200 }],
-        rag: [{ source: 'urn:mcp:vector-store:cdc_guidelines', snippet: 'Art. 42 CDC: sem constrangimento.' }],
-        tokens: 0,
-        latency_ms: FALLBACK_DELAY,
-      },
-    },
-  }
+  const gMetrics = simAgentMetrics('guardiao')
+  metricsAccumulator(gMetrics.tokens, gMetrics.latency_ms)
 
-  // Final response
-  let finalResponse = ''
-  if (userRole === 'CUSTOMER') {
-    if (isThreat) {
-      finalResponse =
-        'Sinto muito que você se sinta assim, João. Nossa intenção é apenas te ajudar a encontrar uma solução amigável. Gostaria de entender melhor o que aconteceu e ver como podemos resolver isso sem atrito?'
-    } else if (isDesperate) {
-      finalResponse =
-        'João, entendo totalmente a situação difícil. Infelizmente não consigo aprovar R$ 500,00, mas o máximo que consigo liberar é um desconto de 30% — cai para R$ 840,00 em 4x de R$ 210,00. Isso ajudaria?'
-    } else {
-      finalResponse =
-        'Entendo perfeitamente, João! Consegui aplicar nosso desconto máximo: o valor cai para R$ 840,00 e podemos dividir em 3x de R$ 280,00 sem juros. Fica melhor para o seu bolso? 😊'
+  yield { type: 'agent_start', data: { id: 'agente_guardiao_compliance', model: 'mock' } }
+  await delay(Math.min(gMetrics.latency_ms, 1000))
+
+  if (forceReject) {
+    yield {
+      type: 'agent_end',
+      data: {
+        id: 'agente_guardiao_compliance',
+        patch: { compliance_status: 'REJEITADO' },
+        trace: {
+          thought: '[SIM] L0:leakage✓ → L1:regex✓ → L2:clean → L3:llm-judge=REJEITADO | Tom defensivo detectado. Disparando self-correction.',
+          tools: [
+            { name: 'security:scan_draft_leakage', payload: '{ chars: 245 }', status: 200 },
+            { name: 'security:check_regex_guardrails', payload: '{}', status: 200 },
+            { name: 'security:llm_judge', payload: '{ model: "mock" }', status: 422 },
+          ],
+          rag: scenario.guardiaoRag,
+          tokens: gMetrics.tokens,
+          latency_ms: gMetrics.latency_ms,
+        },
+      },
     }
   } else {
-    if (isThreat) {
-      finalResponse = `ALERTA DE COMPLIANCE (CLIENTE AGRESSIVO)\n\nTÁTICA SUGERIDA:\n1. Desescalada: Mantenha um tom neutro, não discuta.\n2. Script Legal: "Compreendemos sua insatisfação. Nosso contato tem o objetivo de propor um acordo."\n3. Ação: Não ofereça desconto agora — foque em acalmar.`
-    } else if (isDesperate) {
-      finalResponse = `PROPOSTA RECUSADA PELO MOTOR.\n\nCONTRA-PROPOSTA SUGERIDA:\n1. Empatia: Demonstre solidariedade.\n2. Oferta Teto: R$ 840,00 em 4x de R$ 210,00.\n3. Argumento: "Aumentei o prazo em vez do desconto."`
-    } else {
-      finalResponse = `TÁTICA SUGERIDA:\n\n1. Empatia: Demonstre que entende o momento.\n2. Oferta Máxima: R$ 840,00 (3x de R$ 280,00).\n3. Fechamento: "Esse valor cabe no orçamento?"`
-    }
-  }
-
-  yield {
-    type: 'final',
-    data: {
-      response: finalResponse,
-      compliance_status: 'APROVADO',
-      compliance_risk: 'BAIXO',
-      calculated_proposal: proposal,
-      detected_intent: intent,
-      sentiment,
-      self_corrections: 0,
-      observability: {
-        total_tokens: 0,
-        total_latency_ms: FALLBACK_DELAY * 4,
-        estimated_cost_usd: 0,
-        agents_run: PIPELINE_STEPS,
-        mode: 'simulation',
+    yield {
+      type: 'agent_end',
+      data: {
+        id: 'agente_guardiao_compliance',
+        patch: { compliance_status: scenario.complianceStatus, compliance_risk: scenario.complianceRisk },
+        trace: {
+          thought: `[SIM] ${scenario.guardiaoThought}`,
+          tools: [
+            { name: 'security:scan_draft_leakage', payload: '{ chars: 245 }', status: 200 },
+            { name: 'security:check_regex_guardrails', payload: '{}', status: 200 },
+            { name: 'security:llm_judge', payload: '{ model: "mock" }', status: 200 },
+          ],
+          rag: scenario.guardiaoRag,
+          tokens: gMetrics.tokens,
+          latency_ms: gMetrics.latency_ms,
+        },
       },
-    },
+    }
   }
 }

@@ -10,6 +10,7 @@
 import { runSecurityGate, detectTokenFlooding, detectPromptInjection, detectJailbreak, scanDraftForLeakage } from '../api/lib/security.js'
 import { getHarness, getAgent, getPipeline, getSelfCorrection, getEvalScenarios } from '../api/lib/harness.js'
 import { getDebtStatus, getDiscountPolicy, calculateAmortization, checkGuardrailViolations } from '../api/lib/tools.js'
+import { detectScenario, buildScenarioOutput, simAgentMetrics } from '../src/services/fallback-scenarios.js'
 
 let passed = 0
 let failed = 0
@@ -203,6 +204,57 @@ assert('regex returns CDC article', violations[0]?.article === 'Art. 42 CDC')
 
 const cleanViolations = checkGuardrailViolations('Vamos negociar de forma amigável')
 assert('clean text has no violations', cleanViolations.length === 0)
+
+// ─── Fallback Scenarios ──────────────────────────────────────────────────────
+
+section('Fallback: Scenario Detector')
+
+const scenarioTests = [
+  { msg: 'Fiquei desempregado, só consigo R$ 500', expectId: 'desemprego_extremo' },
+  { msg: 'Vou processar vocês no Procon!', expectId: 'ameaca_juridica' },
+  { msg: 'Conseguem fazer em 6x?', expectId: 'mais_parcelas' },
+  { msg: 'Só recebo dia 10 do mês que vem', expectId: 'promessa_futura' },
+  { msg: 'Eu nunca contratei isso, cobrança indevida', expectId: 'questiona_divida' },
+  { msg: 'Posso parcelar a dívida?', expectId: 'default' },
+]
+
+for (const { msg, expectId } of scenarioTests) {
+  const detected = detectScenario(msg, [])
+  assert(`scenario "${expectId}" detected for: "${msg.slice(0, 30)}..."`, detected.id === expectId, `got "${detected.id}"`)
+}
+
+section('Fallback: Multi-Turn Acceptance')
+
+const lastAIWithProposal = { role: 'ai', text: 'Posso oferecer R$ 840 em 3x de R$ 280. Aceita?' }
+const acceptanceDetected = detectScenario('Ok, aceito', [lastAIWithProposal])
+assert('acceptance scenario detected after proposal', acceptanceDetected.id === 'aceitacao')
+
+const acceptanceWithoutProposal = detectScenario('Ok', [])
+assert('acceptance NOT detected without prior proposal', acceptanceWithoutProposal.id !== 'aceitacao')
+
+section('Fallback: Scenario Output Structure')
+
+const sampleScenario = buildScenarioOutput(detectScenario('Quero parcelar', []), 'CUSTOMER')
+assert('scenario output has intent', !!sampleScenario.intent)
+assert('scenario output has sentiment', !!sampleScenario.sentiment)
+assert('scenario output has response text', typeof sampleScenario.response === 'string' && sampleScenario.response.length > 50)
+assert('scenario output has compliance status', sampleScenario.complianceStatus === 'APROVADO')
+
+const threatScenario = buildScenarioOutput(detectScenario('vou processar', []), 'CUSTOMER')
+assert('threat scenario triggers self-correction', threatScenario.triggerSelfCorrection === true)
+assert('threat scenario has no proposal', threatScenario.proposal === null)
+
+const agentSideOutput = buildScenarioOutput(detectScenario('Quero parcelar', []), 'AGENT')
+assert('AGENT role gets bullet-point format', /^TÁTICA|^ALERTA|^PROPOSTA|^ACORDO/.test(agentSideOutput.response))
+
+section('Fallback: Realistic Metrics')
+
+const metrics = simAgentMetrics('nlu')
+assert('NLU metrics have tokens', metrics.tokens >= 180 && metrics.tokens <= 280)
+assert('NLU metrics have latency', metrics.latency_ms >= 400 && metrics.latency_ms <= 900)
+
+const motorMetrics = simAgentMetrics('motor')
+assert('motor metrics scale up', motorMetrics.tokens >= 450 && motorMetrics.tokens <= 700)
 
 // ─── Summary ─────────────────────────────────────────────────────────────────
 

@@ -7,7 +7,8 @@
     "dev": "vite",
     "build": "vite build",
     "preview": "vite preview",
-    "test": "node scripts/smoke-test.mjs"
+    "test": "node scripts/smoke-test.mjs",
+    "demo:fallback": "node scripts/fallback-demo.mjs"
   },
   "dependencies": {
     "js-yaml": "^4.1.1",

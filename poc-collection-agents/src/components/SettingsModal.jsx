@@ -43,10 +43,32 @@ export function SettingsModal({ onClose }) {
       if (keyToTest) headers['x-byok-key'] = keyToTest
 
       const res = await fetch('/api/healthz', { headers })
+
+      // Backend not running (vite dev alone, no serverless functions)
+      if (res.status === 404) {
+        setTestResult({
+          ok: false,
+          mode: 'simulation',
+          message: 'Backend não disponível neste ambiente. A POC funcionará em modo simulação — todas as features ficam demonstráveis.',
+        })
+        return
+      }
+
       const data = await res.json()
-      setTestResult({ ok: data.ok, model: data.model, has_key: data.has_key })
+      setTestResult({
+        ok: data.ok,
+        mode: data.has_key || keyToTest ? 'real' : 'simulation',
+        model: data.model,
+        has_key: data.has_key || !!keyToTest,
+      })
     } catch (err) {
-      setTestResult({ ok: false, error: err.message })
+      // Network error — vite dev without backend
+      setTestResult({
+        ok: false,
+        mode: 'simulation',
+        error: err.message,
+        message: 'Sem conexão com /api. Rodando em modo simulação (todas as features funcionam).',
+      })
     } finally {
       setTesting(false)
     }
@@ -104,12 +126,22 @@ export function SettingsModal({ onClose }) {
           </div>
 
           {testResult && (
-            <div className={`flex items-start gap-2 text-sm rounded-xl p-3 border ${testResult.ok ? 'bg-emerald-50 border-emerald-200 text-emerald-800' : 'bg-red-50 border-red-200 text-red-800'}`}>
-              {testResult.ok ? <CheckCircle2 size={16} className="mt-0.5 shrink-0" /> : <AlertTriangle size={16} className="mt-0.5 shrink-0" />}
+            <div className={`flex items-start gap-2 text-sm rounded-xl p-3 border ${
+              testResult.ok
+                ? 'bg-emerald-50 border-emerald-200 text-emerald-800'
+                : testResult.mode === 'simulation'
+                ? 'bg-amber-50 border-amber-200 text-amber-800'
+                : 'bg-red-50 border-red-200 text-red-800'
+            }`}>
+              {testResult.ok ? (
+                <CheckCircle2 size={16} className="mt-0.5 shrink-0" />
+              ) : (
+                <AlertTriangle size={16} className="mt-0.5 shrink-0" />
+              )}
               <div>
                 {testResult.ok
-                  ? `Conexão OK! Modelo: ${testResult.model}. Chave: ${testResult.has_key ? 'configurada' : 'não configurada (simulação)'}.`
-                  : `Erro: ${testResult.error || 'falha na conexão'}`}
+                  ? `Conexão OK! Modelo: ${testResult.model}. Chave: ${testResult.has_key ? 'configurada' : 'não configurada'}.`
+                  : testResult.message || `Erro: ${testResult.error || 'falha na conexão'}`}
               </div>
             </div>
           )}
