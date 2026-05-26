@@ -148,3 +148,26 @@ do output chegar ao usuário.
 Quando um cenário falhar, o fix vai para o prompt do agente — não para o cenário.
 
 Ver: [docs/eval_harness.md](eval_harness.md)
+
+---
+
+## GP-13 — Model profile é a única fonte de verdade para seleção de modelo
+
+Os agent runners (`api/lib/agents/*.js`) **nunca** referenciam slugs de modelo,
+estratégias JSON ou pricing diretamente. Tudo vem de `resolveAgent(id)` em
+`api/lib/harness.js`, que mescla a definição base do YAML com o `model_profile`
+ativo (com override final via env `OPENROUTER_DEFAULT_MODEL`).
+
+**Por quê:** trocar um modelo não pode tocar 4 arquivos de agente nem o
+orquestrador. É uma única env var (ou um único profile no YAML). Per-model
+tuning (prompt hints, json strategy, temperatura, history window) também
+mora no profile — não na lógica do agente.
+
+**Verificação:** smoke-test cobre `resolveAgent` em todos os profiles; agent
+runners apenas leem `agent.model`, `agent.temperature`, `agent.json_strategy`
+e `agent.prompt_hints` do dicionário injetado.
+
+**Adicionando um modelo novo:**
+1. Acrescente um bloco em `model_profiles:` com `agents.<id>.{model, temperature, json_strategy, prompt_hints, pricing}` para cada agente.
+2. Se a família precisar de hint novo (`mistral_block`, `llama3_chat`, …), adicione em `applyPromptHints()` de `api/lib/openrouter.js`.
+3. Pronto. Zero mudanças em `agents/*.js` ou `orchestrate.js`.

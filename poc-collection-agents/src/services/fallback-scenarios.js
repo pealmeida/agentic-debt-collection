@@ -166,7 +166,10 @@ const SCENARIOS = [
   // ── More installments request ────────────────────────────────────────────
   {
     id: 'mais_parcelas',
-    detect: (msg) => /(?:mais|maior|estender|dividir|alongar)\s+(?:parcelas?|prazo|vezes)|(?:em|fazer)\s*\d+\s*(?:x|vezes|parcelas?)|parcelar?\s+mais/i.test(msg),
+    detect: (msg) =>
+      /(?:mais|maior|estender|dividir|alongar)\s+(?:parcelas?|prazo|vezes)|(?:em|fazer)\s*(?:em\s*)?\d+\s*(?:x|vezes|parcelas?)|\d+\s*(?:ou\s*\d+)?\s*vezes|parcelar?\s+mais|pesadas.*vezes/i.test(
+        msg,
+      ),
     build: (userRole) => ({
       intent: 'Pedido de Alongamento de Prazo',
       sentiment: 'ansioso',

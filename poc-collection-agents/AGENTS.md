@@ -48,8 +48,7 @@ poc-collection-agents/
 │       ├── PipelineMiniBar.jsx  ← mini-progresso (mobile)
 │       ├── SidebarPanel.jsx     ← painel direito (Grafo / Inspetor / Cockpit)
 │       ├── InspectorPanel.jsx   ← terminal dark de Thought/Tools/RAG
-│       ├── EngineerCockpit.jsx  ← Cockpit Collections Engineer (Observability + Harness Studio)
-│       └── SettingsModal.jsx    ← BYOK (chave OpenRouter do usuário)
+│       └── EngineerCockpit.jsx  ← Cockpit Collections Engineer (Observability + Harness Studio)
 └── docs/
     ├── prompt_guide.md          ← prompts prontos para demo (copiar/colar)
     ├── prd_requisitos.md        ← PRD completo
@@ -65,7 +64,10 @@ poc-collection-agents/
 | O que | Onde |
 |-------|------|
 | Prompts de todos os agentes | `config/harness_negotiator.yaml` → `agents[].system_prompt` |
-| Modelos e temperaturas | `config/harness_negotiator.yaml` → `agents[].model / temperature` |
+| Modelos e temperaturas | `config/harness_negotiator.yaml` → `model_profiles[active].agents[].*` (com fallback em `agents[].model / temperature`) |
+| Estratégia JSON + prompt hints | `config/harness_negotiator.yaml` → `model_profiles[active].agents[].{json_strategy, prompt_hints}` |
+| Profile ativo | `OPENROUTER_MODEL_PROFILE` env var → fallback `active_profile` no YAML |
+| Cost / pricing | `model_profiles[*].agents[*].pricing.{input,output}_per_1m_usd` |
 | Guardrails CDC + Security | `config/harness_negotiator.yaml` → `agents[*].guardrails` |
 | Detectores de segurança | `api/lib/security.js` (token flooding, injection, jailbreak, leakage) |
 | Self-correction config | `config/harness_negotiator.yaml` → `state_graph.self_correction` |

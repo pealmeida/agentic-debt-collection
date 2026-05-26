@@ -21,8 +21,7 @@ export function ModeSwitchBar({ mode, onChangeMode, isProcessing }) {
             }`}
           >
             <Icon size={16} aria-hidden="true" />
-            <span className="hidden xs:inline sm:inline">{cfg.shortLabel}</span>
-            <span className="hidden md:inline">{cfg.label}</span>
+            <span>{cfg.label}</span>
             {isActive && (
               <span className={`hidden sm:inline text-[10px] font-bold px-1.5 py-0.5 rounded border ${cfg.badgeBg}`}>
                 {cfg.badge}

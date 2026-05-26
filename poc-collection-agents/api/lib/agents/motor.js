@@ -3,23 +3,46 @@ import { getDebtStatus, getDiscountPolicy, calculateAmortization } from '../tool
 
 const DEBT_ID = 'D-9982'
 
+const MOTOR_SCHEMA = {
+  type: 'object',
+  properties: {
+    can_propose: { type: 'boolean' },
+    reason_if_not: { type: 'string' },
+    proposal: {
+      type: 'object',
+      properties: {
+        total: { type: 'number' },
+        discount_rate: { type: 'number' },
+        desconto: { type: 'string' },
+        installments: { type: 'number' },
+        installment_value: { type: 'number' },
+      },
+      required: ['total', 'discount_rate', 'desconto', 'installments', 'installment_value'],
+      additionalProperties: false,
+    },
+    tactic_note: { type: 'string', description: 'Nota interna para o Agente Empatia' },
+  },
+  required: ['can_propose', 'reason_if_not', 'proposal', 'tactic_note'],
+  additionalProperties: false,
+}
+
 /**
  * Agente Motor de Acordo
  * Reads debt data and discount policies (via MCP tools), then calculates a concrete proposal.
  * If the intent signals legal threat, it defers proposal calculation and flags for de-escalation.
+ *
+ * GP-12: never trusts LLM arithmetic — `calculateAmortization()` is the source of truth.
  */
 export async function run(state, { agent, openrouter }) {
   const { detected_intent, sentiment, nlu_summary, message } = state
   const toolCalls = []
   const ragContext = []
 
-  // Always fetch debt status
   const debtResult = getDebtStatus(DEBT_ID)
   toolCalls.push({ name: 'get_debt_status', payload: JSON.stringify({ debt_id: DEBT_ID }), status: 200 })
   ragContext.push({ source: debtResult.source, snippet: debtResult.snippet })
   const debt = debtResult.result
 
-  // Fetch applicable discount policy
   const policyResult = getDiscountPolicy(debt.days_overdue)
   toolCalls.push({ name: 'get_politicas_desconto', payload: JSON.stringify({ days_overdue: debt.days_overdue }), status: 200 })
   ragContext.push({ source: policyResult.source, snippet: policyResult.snippet })
@@ -40,35 +63,10 @@ export async function run(state, { agent, openrouter }) {
     messages: [
       { role: 'user', content: `Contexto:\n${contextForLLM}\n\nCalcule a proposta ideal ou indique por que não é possível.` },
     ],
-    responseFormat: {
-      type: 'json_schema',
-      json_schema: {
-        name: 'motor_output',
-        strict: true,
-        schema: {
-          type: 'object',
-          properties: {
-            can_propose: { type: 'boolean' },
-            reason_if_not: { type: 'string' },
-            proposal: {
-              type: 'object',
-              properties: {
-                total: { type: 'number' },
-                discount_rate: { type: 'number' },
-                desconto: { type: 'string' },
-                installments: { type: 'number' },
-                installment_value: { type: 'number' },
-              },
-              required: ['total', 'discount_rate', 'desconto', 'installments', 'installment_value'],
-              additionalProperties: false,
-            },
-            tactic_note: { type: 'string', description: 'Nota interna para o Agente Empatia' },
-          },
-          required: ['can_propose', 'reason_if_not', 'proposal', 'tactic_note'],
-          additionalProperties: false,
-        },
-      },
-    },
+    schema: MOTOR_SCHEMA,
+    schemaName: 'motor_output',
+    jsonStrategy: agent.json_strategy,
+    promptHints: agent.prompt_hints,
     apiKey: openrouter.apiKey,
     baseUrl: openrouter.baseUrl,
   })
@@ -111,7 +109,6 @@ export async function run(state, { agent, openrouter }) {
       })
     }
 
-    // Replace the proposal with tool-computed numbers (authoritative)
     parsed.proposal = { ...parsed.proposal, ...amortResult.result }
   }
 
@@ -133,6 +130,7 @@ export async function run(state, { agent, openrouter }) {
       tools: toolCalls,
       rag: ragContext,
       tokens: usage.total_tokens,
+      usage,
       latency_ms: latencyMs,
     },
   }

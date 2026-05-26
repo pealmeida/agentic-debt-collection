@@ -3,8 +3,18 @@
 @tailwind utilities;
 
 @layer base {
+  html,
+  body,
+  #root {
+    height: 100%;
+  }
+
   html {
     scroll-behavior: smooth;
+  }
+
+  body {
+    overflow: hidden;
   }
 
   @media (prefers-reduced-motion: reduce) {
@@ -47,6 +57,7 @@
 
 .suggestions-scroll {
   position: relative;
+  overflow: hidden;
 }
 
 .suggestions-scroll::after {
@@ -55,6 +66,7 @@
   top: 0;
   right: 0;
   bottom: 0;
+  z-index: 1;
   width: 2rem;
   pointer-events: none;
   background: linear-gradient(to left, rgb(255 255 255), transparent);

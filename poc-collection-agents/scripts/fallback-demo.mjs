@@ -13,6 +13,11 @@ const TEST_CASES = [
   // Functional scenarios
   { msg: 'Quero parcelar minha dívida', role: 'CUSTOMER', expectId: 'default' },
   { msg: 'Conseguem fazer em 6 vezes?', role: 'CUSTOMER', expectId: 'mais_parcelas' },
+  {
+    msg: 'As parcelas estão pesadas. Não conseguem fazer em 5 ou 6 vezes?',
+    role: 'CUSTOMER',
+    expectId: 'mais_parcelas',
+  },
   { msg: 'Estou desempregado, só consigo R$ 400', role: 'CUSTOMER', expectId: 'desemprego_extremo' },
   { msg: 'Vou processar vocês no Procon!', role: 'CUSTOMER', expectId: 'ameaca_juridica' },
   { msg: 'Só recebo dia 10', role: 'CUSTOMER', expectId: 'promessa_futura' },

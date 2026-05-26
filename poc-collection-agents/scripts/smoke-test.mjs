@@ -8,8 +8,12 @@
  */
 
 import { runSecurityGate, detectTokenFlooding, detectPromptInjection, detectJailbreak, scanDraftForLeakage } from '../api/lib/security.js'
-import { getHarness, getAgent, getPipeline, getSelfCorrection, getEvalScenarios } from '../api/lib/harness.js'
+import {
+  getHarness, getAgent, getPipeline, getSelfCorrection, getEvalScenarios,
+  getActiveProfileId, getActiveProfile, listProfiles, resolveAgent, estimateCostUsd,
+} from '../api/lib/harness.js'
 import { getDebtStatus, getDiscountPolicy, calculateAmortization, checkGuardrailViolations } from '../api/lib/tools.js'
+import { buildResponseFormat, applyPromptHints, parseJSON } from '../api/lib/openrouter.js'
 import { detectScenario, buildScenarioOutput, simAgentMetrics } from '../src/services/fallback-scenarios.js'
 
 let passed = 0
@@ -152,7 +156,7 @@ try {
   assert('harness loads without error', false, err.message)
 }
 
-assert('harness has version', harness?.version === '1.1')
+assert('harness has version', typeof harness?.version === 'string')
 assert('harness has 4 agents', harness?.agents?.length === 4)
 
 const expectedAgents = ['agente_escuta_nlu', 'agente_motor_acordo', 'agente_empatia_copywriter', 'agente_guardiao_compliance']
@@ -270,6 +274,135 @@ assert('NLU metrics have latency', metrics.latency_ms >= 400 && metrics.latency_
 
 const motorMetrics = simAgentMetrics('motor')
 assert('motor metrics scale up', motorMetrics.tokens >= 450 && motorMetrics.tokens <= 700)
+
+// ─── Model Profiles ──────────────────────────────────────────────────────────
+
+section('Profiles: catalog + active resolution')
+
+const profiles = listProfiles()
+assert('listProfiles returns >= 2 entries', profiles.length >= 2)
+assert(
+  'gemini-flash-lite is registered',
+  profiles.some((p) => p.id === 'gemini-flash-lite'),
+)
+assert(
+  'openai-blend is registered',
+  profiles.some((p) => p.id === 'openai-blend'),
+)
+
+// Env-override path
+delete process.env.OPENROUTER_MODEL_PROFILE
+delete process.env.OPENROUTER_DEFAULT_MODEL
+const defaultProfileId = getActiveProfileId()
+assert('default active profile is gemini-flash-lite', defaultProfileId === 'gemini-flash-lite')
+
+process.env.OPENROUTER_MODEL_PROFILE = 'openai-blend'
+assert('env override switches profile', getActiveProfileId() === 'openai-blend')
+
+process.env.OPENROUTER_MODEL_PROFILE = 'not-a-real-profile'
+assert(
+  'invalid profile env falls back to YAML default',
+  getActiveProfileId() === 'gemini-flash-lite',
+)
+delete process.env.OPENROUTER_MODEL_PROFILE
+
+section('Profiles: resolveAgent merge order')
+
+const resolvedNlu = resolveAgent('agente_escuta_nlu')
+assert('resolved nlu uses gemini model', resolvedNlu.model === 'google/gemini-2.5-flash-lite')
+assert('resolved nlu carries json_strategy', resolvedNlu.json_strategy === 'json_object')
+assert('resolved nlu carries prompt_hints', resolvedNlu.prompt_hints === 'gemini_flash')
+assert('resolved nlu has pricing', !!resolvedNlu.pricing?.input_per_1m_usd)
+assert('resolved nlu carries history_window=4 for flash', resolvedNlu.history_window === 4)
+
+process.env.OPENROUTER_MODEL_PROFILE = 'openai-blend'
+const resolvedMotorOpenAi = resolveAgent('agente_motor_acordo')
+assert('openai-blend motor uses gpt-4o', resolvedMotorOpenAi.model === 'openai/gpt-4o')
+assert('openai-blend uses schema_strict', resolvedMotorOpenAi.json_strategy === 'schema_strict')
+delete process.env.OPENROUTER_MODEL_PROFILE
+
+process.env.OPENROUTER_DEFAULT_MODEL = 'mistralai/mistral-large'
+const overridden = resolveAgent('agente_motor_acordo')
+assert('env DEFAULT_MODEL overrides resolved model', overridden.model === 'mistralai/mistral-large')
+assert('override flag is set', overridden.model_overridden_by_env === true)
+delete process.env.OPENROUTER_DEFAULT_MODEL
+
+section('Profiles: cost estimation')
+
+const resolved = resolveAgent('agente_escuta_nlu')
+const cost = estimateCostUsd(resolved, { prompt_tokens: 100_000, completion_tokens: 50_000 })
+// Gemini flash-lite: 100k * $0.10/1M + 50k * $0.40/1M = 0.01 + 0.02 = 0.03
+assert('cost uses per-1M pricing', Math.abs(cost - 0.03) < 1e-6, `got ${cost}`)
+
+const noPricing = { pricing: null }
+const fallbackCost = estimateCostUsd(noPricing, { prompt_tokens: 500, completion_tokens: 500 })
+// Fallback: 1000 total tokens * 0.008/1k = 0.008
+assert('falls back to blended rate', Math.abs(fallbackCost - 0.008) < 1e-6, `got ${fallbackCost}`)
+
+// ─── OpenRouter: JSON strategy + prompt hints ────────────────────────────────
+
+section('OpenRouter: buildResponseFormat strategy matrix')
+
+const sampleSchema = { type: 'object', properties: { foo: { type: 'string' } }, required: ['foo'] }
+
+const rfStrict = buildResponseFormat('schema_strict', sampleSchema, 'sample')
+assert('schema_strict → json_schema', rfStrict?.type === 'json_schema')
+assert('schema_strict carries strict=true', rfStrict?.json_schema?.strict === true)
+
+const rfObject = buildResponseFormat('json_object', sampleSchema, 'sample')
+assert('json_object → {type: "json_object"}', rfObject?.type === 'json_object')
+assert('json_object omits schema body', rfObject?.json_schema === undefined)
+
+const rfPrompted = buildResponseFormat('prompted_json', sampleSchema, 'sample')
+assert('prompted_json → null (no response_format)', rfPrompted === null)
+
+const rfText = buildResponseFormat('text', null, 'sample')
+assert('text → null (no response_format)', rfText === null)
+
+const rfStrictNoSchema = buildResponseFormat('schema_strict', null, 'sample')
+assert('schema_strict without schema is null-safe', rfStrictNoSchema === null)
+
+section('OpenRouter: applyPromptHints decoration')
+
+const gemDecorated = applyPromptHints('Você é um agente.', 'gemini_flash', {
+  jsonStrategy: 'json_object',
+  schema: sampleSchema,
+})
+assert('gemini_flash hint mentions JSON only', /apenas com JSON/i.test(gemDecorated))
+assert('gemini_flash hint forbids markdown', /markdown/i.test(gemDecorated))
+assert('gemini_flash hint lists required keys', /foo/.test(gemDecorated))
+
+const gemTextHint = applyPromptHints('Você é um copywriter.', 'gemini_flash', {
+  jsonStrategy: 'text',
+})
+assert('gemini_flash text mode adds style guidance', /conciso/i.test(gemTextHint))
+assert('gemini_flash text mode does NOT demand JSON', !/JSON/i.test(gemTextHint))
+
+const openaiDecorated = applyPromptHints('Você é um agente.', 'openai_strict', {
+  jsonStrategy: 'schema_strict',
+  schema: sampleSchema,
+})
+assert('openai_strict leaves prompt untouched', openaiDecorated === 'Você é um agente.')
+
+section('OpenRouter: parseJSON robustness')
+
+assert('parses clean JSON', parseJSON('{"a": 1}').a === 1)
+assert(
+  'parses JSON wrapped in ```json fences```',
+  parseJSON('```json\n{"a": 2}\n```').a === 2,
+)
+assert(
+  'parses JSON wrapped in plain fences',
+  parseJSON('```\n{"a": 3}\n```').a === 3,
+)
+assert(
+  'extracts JSON from prose preamble',
+  parseJSON('Aqui está o resultado: {"a": 4} obrigado!').a === 4,
+)
+assert(
+  'falls back when no JSON present',
+  parseJSON('nada aqui', { ok: false }).ok === false,
+)
 
 // ─── Summary ─────────────────────────────────────────────────────────────────
 

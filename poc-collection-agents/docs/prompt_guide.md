@@ -1,6 +1,6 @@
 # Guia de prompts — demonstração da POC
 
-Use este guia para **copiar e colar** mensagens no chat da POC e ver cada feature em ação. Funciona em **modo simulação** (sem chave OpenRouter) e com **LLM real** (chave em ⚙️ Configurações ou `.env`).
+Use este guia para **copiar e colar** mensagens no chat da POC e ver cada feature em ação. Funciona em **modo simulação** (sem chave OpenRouter) e com **LLM real** (`OPENROUTER_API_KEY` no servidor).
 
 ## Antes de começar
 
@@ -191,7 +191,7 @@ O que observar: resposta de bloqueio imediata; Grafo não avança; log de segura
 
 | | Simulação | LLM real |
 |---|-----------|----------|
-| Chave | Nenhuma / backend offline | ⚙️ BYOK ou `OPENROUTER_API_KEY` |
+| Chave | Nenhuma / backend offline | `OPENROUTER_API_KEY` no servidor |
 | Comportamento | Cenários determinísticos em `src/services/fallback-scenarios.js` | OpenRouter + YAML |
 | Métricas | Faixas realistas simuladas | Tokens/latência reais |
 | Security | Mesmas regras (`api/lib/security.js`) | Idêntico |

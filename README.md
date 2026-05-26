@@ -19,8 +19,7 @@ Monorepo com uma aplicação completa em [`poc-collection-agents/`](poc-collecti
 - **Dual persona:** Visão Cliente (B2C) e Collections Engineer (B2B)
 - **Security layer:** jailbreak, prompt injection e token flooding bloqueados antes do pipeline
 - **Inspetor IA:** chain-of-thought, tools MCP e contexto RAG inspecionáveis
-- **BYOK:** chave OpenRouter do usuário via Configurações (localStorage)
-- **Modo simulação:** sem API key, todas as features são demonstráveis offline
+- **Modo simulação:** sem API key no servidor, todas as features são demonstráveis offline
 
 ## Quick start
 
@@ -53,7 +52,7 @@ agentic-debt-collection/
 
 | Documento | Conteúdo |
 |-----------|----------|
-| [README da POC](poc-collection-agents/README.md) | Setup, BYOK, deploy Vercel, tabela de fallback |
+| [README da POC](poc-collection-agents/README.md) | Setup, deploy Vercel, tabela de fallback |
 | [Guia de prompts](poc-collection-agents/docs/prompt_guide.md) | Prompts prontos para demonstrar cada feature |
 | [PRD](poc-collection-agents/docs/prd_requisitos.md) | Requisitos funcionais e critérios de aceite |
 | [Arquitetura](poc-collection-agents/docs/arquitetura_poc.md) | Camadas, state graph, stack |
@@ -67,7 +66,7 @@ agentic-debt-collection/
 1. Push para GitHub.
 2. [vercel.com/new](https://vercel.com/new) → importe o repositório.
 3. **Root Directory:** `poc-collection-agents`
-4. Variáveis recomendadas: `OPENROUTER_API_KEY`, `ALLOW_BYOK=true`
+4. Variável recomendada: `OPENROUTER_API_KEY`
 
 Health check após deploy: `https://<seu-deploy>.vercel.app/api/healthz`
 

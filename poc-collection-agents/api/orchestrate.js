@@ -1,4 +1,4 @@
-import { getAgent, getSelfCorrection } from './lib/harness.js'
+import { resolveAgent, getSelfCorrection, getActiveProfile, estimateCostUsd } from './lib/harness.js'
 import { runSecurityGate } from './lib/security.js'
 import * as nlu from './lib/agents/nlu.js'
 import * as motor from './lib/agents/motor.js'
@@ -15,30 +15,30 @@ const AGENT_RUNNERS = {
 export const config = { maxDuration: 30 }
 
 export default async function handler(req, res) {
-  // Health check
+  // Health check (lightweight echo of the main healthz, keeps backward compat).
   if (req.method === 'GET') {
-    const key = process.env.OPENROUTER_API_KEY
-    return res.status(200).json({ ok: true, model: process.env.OPENROUTER_DEFAULT_MODEL || 'openai/gpt-4o-mini', has_key: !!key })
+    const profile = getActiveProfile()
+    return res.status(200).json({
+      ok: true,
+      profile: profile ? { id: profile.id, label: profile.label } : null,
+      has_key: !!process.env.OPENROUTER_API_KEY,
+    })
   }
 
   if (req.method !== 'POST') {
     return res.status(405).json({ error: 'Method not allowed' })
   }
 
-  // Determine API key: BYOK header takes precedence if ALLOW_BYOK is enabled
-  const allowByok = process.env.ALLOW_BYOK === 'true'
-  const byokKey = allowByok ? req.headers['x-byok-key'] : null
-  const apiKey = byokKey || process.env.OPENROUTER_API_KEY
+  const apiKey = process.env.OPENROUTER_API_KEY
 
   if (!apiKey) {
-    // No key — signal frontend to use fallback mock
     return res.status(503).json({ error: 'No API key configured', mock: true })
   }
 
-  const baseUrl = 'https://openrouter.ai/api/v1'
+  const profile = getActiveProfile()
+  const baseUrl = profile?.base_url || 'https://openrouter.ai/api/v1'
   const openrouter = { apiKey, baseUrl }
 
-  // Parse body
   let body
   try {
     body = typeof req.body === 'string' ? JSON.parse(req.body) : req.body
@@ -58,7 +58,6 @@ export default async function handler(req, res) {
     const isHigh = securityResult.highestSeverity === 'HIGH'
 
     if (isHigh) {
-      // Block entirely — emit security event and close
       res.setHeader('Content-Type', 'text/event-stream')
       res.setHeader('Cache-Control', 'no-cache')
       res.setHeader('Connection', 'keep-alive')
@@ -76,11 +75,9 @@ export default async function handler(req, res) {
       return
     }
 
-    // MEDIUM/LOW: continue but log — annotate state for Guardião
     console.warn('[security] MEDIUM threat detected, continuing with annotation:', securityResult.summary)
   }
 
-  // SSE setup
   res.setHeader('Content-Type', 'text/event-stream')
   res.setHeader('Cache-Control', 'no-cache')
   res.setHeader('Connection', 'keep-alive')
@@ -90,6 +87,14 @@ export default async function handler(req, res) {
   function emit(event, data) {
     res.write(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`)
   }
+
+  // Surface the active profile to the UI at the start of each session.
+  emit('profile', {
+    id: profile?.id || null,
+    label: profile?.label || null,
+    description: profile?.description || null,
+    env_override: !!process.env.OPENROUTER_DEFAULT_MODEL,
+  })
 
   try {
     const selfCorrectionConfig = getSelfCorrection()
@@ -113,58 +118,60 @@ export default async function handler(req, res) {
       compliance_risk: null,
       final_response: null,
       correction_feedback: null,
-      // Security annotations (Layer 0 result forwarded to Guardião)
       security_threats: securityResult.safe ? [] : securityResult.threats,
       security_severity: securityResult.safe ? null : securityResult.highestSeverity,
     }
 
     const allTraces = []
+    let totalCostUsd = 0
     let selfCorrectionAttempts = 0
     const maxSelfCorrections = selfCorrectionConfig?.max_attempts ?? 2
 
-    // Override model from env if set
-    function resolveModel(agentConfig) {
-      if (process.env.OPENROUTER_DEFAULT_MODEL) {
-        return process.env.OPENROUTER_DEFAULT_MODEL
-      }
-      return agentConfig.model
-    }
-
     async function runAgent(agentId) {
-      const agentConfig = getAgent(agentId)
-      const resolvedConfig = { ...agentConfig, model: resolveModel(agentConfig) }
+      const resolved = resolveAgent(agentId)
       const runner = AGENT_RUNNERS[agentId]
 
       if (!runner) {
         throw new Error(`No runner found for agent: ${agentId}`)
       }
 
-      emit('agent_start', { id: agentId, model: resolvedConfig.model })
+      emit('agent_start', {
+        id: agentId,
+        model: resolved.model,
+        json_strategy: resolved.json_strategy,
+        prompt_hints: resolved.prompt_hints,
+        profile_id: resolved.profile_id,
+      })
 
-      const { patch, trace } = await runner.run(state, { agent: resolvedConfig, openrouter })
+      const { patch, trace } = await runner.run(state, { agent: resolved, openrouter })
       Object.assign(state, patch)
-      allTraces.push(trace)
+
+      // Per-agent cost using profile pricing (with safe fallback).
+      const agentCostUsd = estimateCostUsd(resolved, trace.usage)
+      totalCostUsd += agentCostUsd
+      allTraces.push({ ...trace, cost_usd: agentCostUsd, model: resolved.model })
 
       emit('agent_end', {
         id: agentId,
+        model: resolved.model,
         patch,
         trace: {
           thought: trace.thought,
           tools: trace.tools,
           rag: trace.rag,
           tokens: trace.tokens,
+          usage: trace.usage,
           latency_ms: trace.latency_ms,
+          cost_usd: Number(agentCostUsd.toFixed(6)),
         },
       })
     }
 
-    // Run NLU and Motor always first
     await runAgent('agente_escuta_nlu')
     emit('state_update', { detected_intent: state.detected_intent, sentiment: state.sentiment })
 
     await runAgent('agente_motor_acordo')
 
-    // Empatia + Guardião loop with self-correction
     let approved = false
     while (!approved && selfCorrectionAttempts <= maxSelfCorrections) {
       await runAgent('agente_empatia_copywriter')
@@ -180,7 +187,6 @@ export default async function handler(req, res) {
           feedback: state.compliance_feedback,
         })
       } else {
-        // Max attempts reached — approve with a warning note
         state.compliance_status = 'APROVADO'
         state.draft_response = (state.draft_response || '') + '\n\n[Nota: Texto revisado pelo Guardião de Compliance.]'
         approved = true
@@ -191,8 +197,6 @@ export default async function handler(req, res) {
 
     const totalTokens = allTraces.reduce((acc, t) => acc + (t.tokens || 0), 0)
     const totalLatency = allTraces.reduce((acc, t) => acc + (t.latency_ms || 0), 0)
-    // Rough cost estimate: $0.005/1K for 4o-mini, $0.015/1K for 4o — use blended avg
-    const estimatedCostUsd = (totalTokens / 1000) * 0.008
 
     emit('final', {
       response: state.final_response,
@@ -205,8 +209,10 @@ export default async function handler(req, res) {
       observability: {
         total_tokens: totalTokens,
         total_latency_ms: totalLatency,
-        estimated_cost_usd: Math.round(estimatedCostUsd * 10000) / 10000,
+        estimated_cost_usd: Math.round(totalCostUsd * 1_000_000) / 1_000_000,
         agents_run: allTraces.map((t) => t.agent),
+        profile_id: profile?.id || null,
+        profile_label: profile?.label || null,
       },
     })
   } catch (err) {

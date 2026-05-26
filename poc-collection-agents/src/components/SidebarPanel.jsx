@@ -34,7 +34,7 @@ function GrafoTab({ agentState, isProcessing }) {
   ]
 
   return (
-    <div className="flex-1 overflow-y-auto p-5 space-y-6 overscroll-contain bg-white">
+    <div className="flex-1 min-h-0 overflow-y-auto p-5 space-y-6 overscroll-contain touch-pan-y bg-white">
       <div className="space-y-3">
         <h3 className="text-xs font-bold text-slate-500 uppercase tracking-wider flex items-center gap-1.5">
           <FileText size={12} aria-hidden="true" /> Contexto Atual (CRM)
@@ -142,7 +142,7 @@ export function SidebarPanel({ mode, agentState, isProcessing, onClose }) {
       ]
 
   return (
-    <div className="flex flex-col h-full">
+    <div className="flex flex-col h-full min-h-0 overflow-hidden">
       <div className="flex items-center border-b border-slate-200 bg-white shrink-0">
         <div className="flex flex-1" role="tablist" aria-label="Painéis do agente">
           {tabs.map((tab) => {
@@ -177,12 +177,12 @@ export function SidebarPanel({ mode, agentState, isProcessing, onClose }) {
 
       {activeTab === 'grafo' && <GrafoTab agentState={agentState} isProcessing={isProcessing} />}
       {activeTab === 'inspector' && (
-        <div className="flex-1 min-h-0">
+        <div className="flex-1 min-h-0 overflow-hidden">
           <InspectorPanel inspector={agentState.inspector} isProcessing={isProcessing} />
         </div>
       )}
       {activeTab === 'cockpit' && (
-        <div className="flex-1 min-h-0 overflow-y-auto">
+        <div className="flex-1 min-h-0 overflow-hidden">
           <EngineerCockpit agentState={agentState} />
         </div>
       )}

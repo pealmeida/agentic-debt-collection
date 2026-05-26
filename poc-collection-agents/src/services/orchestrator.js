@@ -22,28 +22,16 @@ const DEBT_INFO_FULL = {
   status: 'OVERDUE',
 }
 
-function getByokKey() {
-  try {
-    return localStorage.getItem('openrouter_byok_key') || ''
-  } catch {
-    return ''
-  }
-}
-
 /**
  * Async generator that streams pipeline events from the backend.
  * Each yielded event: { type: string, data: object }
  */
 export async function* runPipeline(message, { sessionId, userRole, history = [] }) {
-  const byokKey = getByokKey()
-  const headers = { 'Content-Type': 'application/json' }
-  if (byokKey) headers['x-byok-key'] = byokKey
-
   let res
   try {
     res = await fetch('/api/orchestrate', {
       method: 'POST',
-      headers,
+      headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ session_id: sessionId, user_role: userRole, message, history }),
     })
   } catch (networkErr) {
@@ -54,15 +42,33 @@ export async function* runPipeline(message, { sessionId, userRole, history = [] 
 
   if (!res.ok) {
     let body = {}
-    try { body = await res.json() } catch { /* ignore */ }
+    const contentType = res.headers.get('content-type') || ''
+    const isJson = contentType.includes('application/json')
+    if (isJson) {
+      try {
+        body = await res.json()
+      } catch {
+        /* ignore */
+      }
+    }
 
-    if (body.mock) {
-      yield { type: 'fallback', data: { reason: 'no_api_key' } }
+    // No backend (Vite dev 404), no API key (503 mock), or explicit mock flag → local simulation
+    const useFallback =
+      body.mock === true ||
+      res.status === 404 ||
+      res.status === 502 ||
+      (!isJson && res.status >= 400)
+
+    if (useFallback) {
+      yield {
+        type: 'fallback',
+        data: { reason: body.mock ? 'no_api_key' : res.status === 404 ? 'no_backend' : 'backend_unavailable' },
+      }
       yield* runLocalFallback(message, userRole, history)
       return
     }
 
-    yield { type: 'error', data: { message: `HTTP ${res.status}` } }
+    yield { type: 'error', data: { message: body.error || `HTTP ${res.status}` } }
     return
   }
 
@@ -270,7 +276,11 @@ async function* runEmpatiaGuardiaoPass({ scenario, userRole, isFirstPass, forceR
     type: 'agent_end',
     data: {
       id: 'agente_empatia_copywriter',
-      patch: {},
+      patch: {
+        draft_response: isFirstPass && forceReject
+          ? `${scenario.response}\n\n[SIM: versão inicial marcada para reescrita pelo Guardião.]`
+          : scenario.response,
+      },
       trace: {
         thought: isFirstPass
           ? `[SIM] ${scenario.empatiaThought}`
@@ -295,7 +305,11 @@ async function* runEmpatiaGuardiaoPass({ scenario, userRole, isFirstPass, forceR
       type: 'agent_end',
       data: {
         id: 'agente_guardiao_compliance',
-        patch: { compliance_status: 'REJEITADO' },
+        patch: {
+          compliance_status: 'REJEITADO',
+          compliance_feedback: 'Tom levemente defensivo detectado. Reescreva com mais empatia e neutralidade.',
+          compliance_risk: 'MÉDIO',
+        },
         trace: {
           thought: '[SIM] L0:leakage✓ → L1:regex✓ → L2:clean → L3:llm-judge=REJEITADO | Tom defensivo detectado. Disparando self-correction.',
           tools: [
@@ -314,7 +328,11 @@ async function* runEmpatiaGuardiaoPass({ scenario, userRole, isFirstPass, forceR
       type: 'agent_end',
       data: {
         id: 'agente_guardiao_compliance',
-        patch: { compliance_status: scenario.complianceStatus, compliance_risk: scenario.complianceRisk },
+        patch: {
+          compliance_status: scenario.complianceStatus,
+          compliance_feedback: '',
+          compliance_risk: scenario.complianceRisk,
+        },
         trace: {
           thought: `[SIM] ${scenario.guardiaoThought}`,
           tools: [

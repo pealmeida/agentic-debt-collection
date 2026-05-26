@@ -3,8 +3,12 @@ import { callOpenRouter } from '../openrouter.js'
 /**
  * Agente Empatia (Copywriter)
  * Translates the motor's mathematical output into human-readable text.
- * Adapts format and tone based on user_role (CUSTOMER = WhatsApp empático, AGENT = bullet points).
+ * Adapts format and tone based on user_role (CUSTOMER = WhatsApp empático,
+ * AGENT = bullet points).
  * Can receive a `correction_feedback` from Guardião when self-correction is active.
+ *
+ * Output is free text (json_strategy: text). Prompt hints still apply (e.g.
+ * gemini_flash tightens verbosity), but no response_format is enforced.
  */
 export async function run(state, { agent, openrouter }) {
   const {
@@ -46,6 +50,8 @@ export async function run(state, { agent, openrouter }) {
     messages: [
       { role: 'user', content: `Contexto:\n${JSON.stringify(contextForLLM, null, 2)}\n\nGere a resposta final.` },
     ],
+    jsonStrategy: agent.json_strategy || 'text',
+    promptHints: agent.prompt_hints,
     apiKey: openrouter.apiKey,
     baseUrl: openrouter.baseUrl,
   })
@@ -56,7 +62,7 @@ export async function run(state, { agent, openrouter }) {
 
   return {
     patch: {
-      draft_response: content,
+      draft_response: stripStrayFences(content),
     },
     trace: {
       agent: 'agente_empatia_copywriter',
@@ -64,7 +70,19 @@ export async function run(state, { agent, openrouter }) {
       tools: [],
       rag: [],
       tokens: usage.total_tokens,
+      usage,
       latency_ms: latencyMs,
     },
   }
+}
+
+/**
+ * Some smaller models occasionally wrap free-form text in markdown fences
+ * (e.g. ```text … ```). Strip them so the draft reaches the Guardião clean.
+ */
+function stripStrayFences(text) {
+  if (!text) return text
+  const trimmed = String(text).trim()
+  const fenced = trimmed.match(/^```(?:text|markdown)?\s*([\s\S]*?)\s*```$/i)
+  return fenced ? fenced[1].trim() : trimmed
 }

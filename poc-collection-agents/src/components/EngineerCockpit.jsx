@@ -9,6 +9,21 @@ const SENTIMENT_COLORS = {
   neutro: 'text-slate-600 bg-slate-50 border-slate-200',
 }
 
+const SENTIMENT_BAR_COLORS = {
+  colaborativo: 'bg-emerald-400',
+  ansioso: 'bg-amber-400',
+  desesperado: 'bg-orange-400',
+  agressivo: 'bg-red-400',
+  neutro: 'bg-slate-400',
+}
+
+const AGENT_LABELS = {
+  agente_escuta_nlu: 'NLU',
+  agente_motor_acordo: 'Motor',
+  agente_empatia_copywriter: 'Empatia',
+  agente_guardiao_compliance: 'Guardião',
+}
+
 function getObservabilityEntries() {
   try {
     return JSON.parse(sessionStorage.getItem('poc_observability') || '[]')
@@ -197,12 +212,94 @@ function SentimentBar({ entries }) {
           </div>
           <div className="h-1.5 bg-slate-100 rounded-full overflow-hidden">
             <div
-              className={`h-full rounded-full ${SENTIMENT_COLORS[sentiment]?.split(' ')[2] || 'bg-slate-300'}`}
-              style={{ width: `${(count / total) * 100}%`, backgroundColor: undefined }}
+              className={`h-full rounded-full ${SENTIMENT_BAR_COLORS[sentiment] || 'bg-slate-300'}`}
+              style={{ width: `${(count / total) * 100}%` }}
             />
           </div>
         </div>
       ))}
+    </div>
+  )
+}
+
+function AgentRunBreakdown({ entry }) {
+  const agents = entry.workflow_trace?.agents || entry.agents_run || []
+  if (agents.length === 0) return null
+
+  return (
+    <div className="bg-slate-50 border border-slate-200 rounded-xl p-3">
+      <p className="text-[10px] font-bold text-slate-500 uppercase tracking-wider mb-2">Trace agente-a-agente</p>
+      <div className="space-y-1.5">
+        {agents.map((agent, i) => {
+          const id = typeof agent === 'string' ? agent : agent.id
+          const trace = typeof agent === 'string' ? null : agent.trace
+          const patch = typeof agent === 'string' ? null : agent.patch
+          return (
+            <div key={`${id}-${i}`} className="border border-slate-100 bg-white rounded-lg p-2 text-[11px]">
+              <div className="flex items-center justify-between gap-2">
+                <span className="font-bold text-slate-700">{AGENT_LABELS[id] || id}</span>
+                <span className="text-slate-400">{trace?.tokens || agent.tokens || 0}t · {trace?.latency_ms || agent.latency_ms || 0}ms</span>
+              </div>
+              <div className="text-slate-500 truncate mt-0.5">{agent.model || 'model não informado'}</div>
+              {trace?.tools?.length > 0 && (
+                <div className="text-emerald-600 mt-1">{trace.tools.length} tool(s): {trace.tools.map((t) => t.name).join(', ')}</div>
+              )}
+              {trace?.rag?.length > 0 && (
+                <div className="text-amber-600 mt-0.5">{trace.rag.length} fonte(s) RAG/MCP</div>
+              )}
+              {patch?.compliance_status && (
+                <div className={patch.compliance_status === 'APROVADO' ? 'text-emerald-600 mt-0.5' : 'text-red-600 mt-0.5'}>
+                  compliance: {patch.compliance_status}{patch.compliance_risk ? ` · risco ${patch.compliance_risk}` : ''}
+                </div>
+              )}
+            </div>
+          )
+        })}
+      </div>
+    </div>
+  )
+}
+
+function LatestWorkflowCard({ entry }) {
+  if (!entry) return null
+  const drafts = entry.workflow_trace?.drafts || []
+  const latestDraft = entry.draft_response || drafts[drafts.length - 1]?.text
+  const finalResponse = entry.final_response || entry.workflow_trace?.final_response
+
+  return (
+    <div className="space-y-3">
+      <div className="bg-brand-50 border border-brand-100 rounded-xl p-3 text-xs text-brand-900">
+        <div className="flex items-center justify-between gap-2 mb-1">
+          <span className="font-bold">Última execução reproduzível</span>
+          <span className="font-mono text-[10px] text-brand-600">{entry.mode || 'real'}</span>
+        </div>
+        <div className="text-brand-800">
+          {entry.profile_id ? `profile=${entry.profile_id}` : 'profile não informado'}
+          {entry.workflow_trace?.profile?.label ? ` · ${entry.workflow_trace.profile.label}` : ''}
+        </div>
+        <div className="mt-1 text-brand-700">
+          intent={entry.intent || '—'} · sentiment={entry.sentiment || '—'} · compliance={entry.compliance_status || '—'}
+        </div>
+      </div>
+
+      <AgentRunBreakdown entry={entry} />
+
+      {(latestDraft || finalResponse) && (
+        <div className="bg-slate-50 border border-slate-200 rounded-xl p-3 text-[11px]">
+          {latestDraft && (
+            <details>
+              <summary className="cursor-pointer font-bold text-slate-600">Draft Empatia aprovado</summary>
+              <p className="mt-2 whitespace-pre-wrap text-slate-600">{latestDraft}</p>
+            </details>
+          )}
+          {finalResponse && finalResponse !== latestDraft && (
+            <details className="mt-2">
+              <summary className="cursor-pointer font-bold text-slate-600">Resposta final</summary>
+              <p className="mt-2 whitespace-pre-wrap text-slate-600">{finalResponse}</p>
+            </details>
+          )}
+        </div>
+      )}
     </div>
   )
 }
@@ -221,6 +318,7 @@ function ObservabilityPanel({ agentState }) {
   const totalCost = entries.reduce((s, e) => s + (e.estimated_cost_usd || 0), 0)
   const avgLatency = entries.length ? Math.round(entries.reduce((s, e) => s + (e.total_latency_ms || 0), 0) / entries.length) : 0
   const corrections = entries.reduce((s, e) => s + (e.self_corrections || 0), 0)
+  const latestEntry = entries[0] || null
 
   function handleExportObs() {
     const blob = new Blob([JSON.stringify(entries, null, 2)], { type: 'application/json' })
@@ -271,6 +369,8 @@ function ObservabilityPanel({ agentState }) {
           <span><strong>{corrections}</strong> self-correction(s) realizadas nesta sessão</span>
         </div>
       )}
+
+      {latestEntry?.workflow_trace && <LatestWorkflowCard entry={latestEntry} />}
 
       {/* Sentiment distribution */}
       {entries.length > 0 && (
@@ -336,7 +436,7 @@ export function EngineerCockpit({ agentState }) {
   ]
 
   return (
-    <div className="flex flex-col h-full">
+    <div className="flex flex-col h-full min-h-0 overflow-hidden">
       <div className="flex border-b border-slate-200 bg-slate-50 shrink-0">
         {tabs.map((tab) => {
           const Icon = tab.icon
@@ -357,12 +457,12 @@ export function EngineerCockpit({ agentState }) {
         })}
       </div>
 
-      <div className="flex-1 overflow-y-auto">
+      <div className="flex-1 min-h-0 overflow-y-auto overscroll-contain touch-pan-y">
         {activeTab === 'observability' && <ObservabilityPanel agentState={agentState} />}
         {activeTab === 'harness' && <HarnessStudio />}
       </div>
 
-      <div className="border-t border-slate-100 px-4 py-2 bg-slate-50">
+      <div className="border-t border-slate-100 px-4 py-2 bg-slate-50 shrink-0">
         <p className="text-[9px] text-slate-400 text-center">
           Inspirado no <a href="https://monest.com.br/collections" target="_blank" rel="noopener noreferrer" className="underline hover:text-slate-600">Collections Engineer</a> da Monest
         </p>

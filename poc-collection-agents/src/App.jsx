@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef, useCallback } from 'react'
-import { Bot, Menu, Send, Sparkles, Settings, Cpu } from 'lucide-react'
+import { Bot, Menu, Send, Sparkles, Cpu } from 'lucide-react'
 
 import { MODES, SUGGESTIONS, INITIAL_AGENT_STATE } from './constants.js'
 import { getOrCreateSessionId, downloadJSON } from './utils.js'
@@ -9,7 +9,6 @@ import { applyPipelineEvent } from './services/pipeline-events.js'
 import { ModeSwitchBar } from './components/ModeSwitchBar.jsx'
 import { PipelineMiniBar } from './components/PipelineMiniBar.jsx'
 import { SidebarPanel } from './components/SidebarPanel.jsx'
-import { SettingsModal } from './components/SettingsModal.jsx'
 import { ChatMessage } from './components/ChatMessage.jsx'
 
 const INITIAL_MESSAGES = {
@@ -31,17 +30,22 @@ export default function App() {
   const [inputText, setInputText] = useState('')
   const [isProcessing, setIsProcessing] = useState(false)
   const [showSidebar, setShowSidebar] = useState(false)
-  const [showSettings, setShowSettings] = useState(false)
   const [actionFeedback, setActionFeedback] = useState(null)
   const [agentState, setAgentState] = useState(INITIAL_AGENT_STATE)
 
   const sessionId = useRef(getOrCreateSessionId())
-  const chatEndRef = useRef(null)
+  const chatScrollRef = useRef(null)
+  const turnTraceRef = useRef(null)
 
   // Auto-scroll on new messages or active-agent change
   const scrollToBottom = useCallback(() => {
     const prefersReducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches
-    chatEndRef.current?.scrollIntoView({ behavior: prefersReducedMotion ? 'auto' : 'smooth' })
+    window.requestAnimationFrame(() => {
+      chatScrollRef.current?.scrollTo({
+        top: chatScrollRef.current.scrollHeight,
+        behavior: prefersReducedMotion ? 'auto' : 'smooth',
+      })
+    })
   }, [])
 
   useEffect(() => {
@@ -110,9 +114,14 @@ export default function App() {
       sentiment: null,
       calculatedProposal: null,
       complianceStatus: null,
+      complianceRisk: null,
+      complianceFeedback: null,
+      draftResponse: null,
+      finalResponse: null,
       ragLogs: [],
       inspector: { thinking: [], tools: [], ragContext: [] },
       isFallback: false,
+      workflowTrace: null,
     }))
 
     // Build history for multi-turn (last 10 messages, system excluded)
@@ -122,7 +131,16 @@ export default function App() {
       .map((m) => ({ role: m.role, text: m.text }))
 
     const stepIndexRef = { current: 0 }
-    const eventCtx = { setAgentState, setMessages, addLog, updateInspector, stepIndexRef }
+    turnTraceRef.current = {
+      session_id: sessionId.current,
+      mode,
+      input: textToSend,
+      started_at: new Date().toISOString(),
+      agents: [],
+      self_corrections: [],
+      drafts: [],
+    }
+    const eventCtx = { setAgentState, setMessages, addLog, updateInspector, stepIndexRef, turnTraceRef }
 
     try {
       for await (const event of runPipeline(textToSend, { sessionId: sessionId.current, userRole: mode, history })) {
@@ -140,7 +158,7 @@ export default function App() {
   const latestAIMessageId = messages.filter((m) => m.role === 'ai').reduce((max, m) => Math.max(max, m.id), 0)
 
   return (
-    <div className="min-h-dvh w-full bg-slate-100 font-sans flex justify-center safe-area-top safe-area-bottom">
+    <div className="h-dvh max-h-dvh w-full overflow-hidden bg-slate-100 font-sans flex justify-center safe-area-top safe-area-bottom">
       <a
         href="#main-chat"
         className="sr-only focus:not-sr-only focus:absolute focus:top-2 focus:left-2 focus:z-[60] focus:px-4 focus:py-2 focus:bg-brand-600 focus:text-white focus:rounded-lg focus:font-medium"
@@ -148,13 +166,13 @@ export default function App() {
         Pular para o chat
       </a>
 
-      <div className="flex min-h-dvh w-full max-w-7xl relative overflow-hidden">
+      <div className="flex h-full min-h-0 w-full max-w-7xl relative overflow-hidden">
         {showSidebar && (
           <div className="fixed inset-0 bg-slate-900/50 z-40 md:hidden" onClick={() => setShowSidebar(false)} aria-hidden="true" />
         )}
 
         {/* ── Chat column ── */}
-        <div className="flex-1 flex flex-col min-h-dvh relative bg-white shadow-2xl md:rounded-r-none lg:rounded-none min-w-0 border-r border-slate-200">
+        <div className="flex-1 flex flex-col h-full min-h-0 relative bg-white shadow-2xl md:rounded-r-none lg:rounded-none min-w-0 border-r border-slate-200">
 
           <header className="bg-white px-4 py-3 border-b border-slate-200 flex items-center justify-between z-20 shrink-0">
             <div className="flex items-center gap-3 min-w-0">
@@ -184,14 +202,6 @@ export default function App() {
                 <span className="font-medium">Visão ativa:</span>
                 <span className={`font-bold px-2 py-1 rounded-lg border ${modeCfg.badgeBg}`}>{modeCfg.label}</span>
               </div>
-              <button
-                type="button"
-                onClick={() => setShowSettings(true)}
-                className="btn-interactive min-h-[40px] min-w-[40px] flex items-center justify-center rounded-lg hover:bg-slate-100 text-slate-400 hover:text-slate-600"
-                aria-label="Configurações"
-              >
-                <Settings size={18} />
-              </button>
             </div>
           </header>
 
@@ -201,9 +211,10 @@ export default function App() {
           {/* Chat messages */}
           <div
             id="main-chat"
+            ref={chatScrollRef}
             aria-live="polite"
             aria-relevant="additions"
-            className="flex-1 overflow-y-auto p-4 sm:p-6 space-y-5 bg-slate-50/60 overscroll-contain touch-manipulation"
+            className="flex-1 min-h-0 overflow-y-auto p-4 sm:p-6 space-y-5 bg-slate-50/60 overscroll-contain touch-pan-y scroll-pb-6"
           >
             {messages.map((msg) => (
               <ChatMessage
@@ -234,24 +245,25 @@ export default function App() {
                 </div>
               </div>
             )}
-            <div ref={chatEndRef} />
           </div>
 
           {/* Input area */}
           <div className="bg-white p-3 sm:p-4 border-t border-slate-200 shrink-0 flex flex-col gap-3 safe-area-bottom">
-            <div className="suggestions-scroll flex overflow-x-auto pb-1 scrollbar-hide gap-2 touch-manipulation">
-              {SUGGESTIONS[mode].map((sug) => (
-                <button
-                  key={sug.label}
-                  type="button"
-                  onClick={() => handleSendMessage(sug.text)}
-                  disabled={isProcessing}
-                  className={`btn-interactive shrink-0 flex items-center gap-1.5 min-h-[40px] px-4 py-2 rounded-full text-sm font-medium border disabled:opacity-50 disabled:cursor-not-allowed ${modeCfg.accentLight} ${modeCfg.accentLightBorder} ${modeCfg.accentText} hover:opacity-80`}
-                >
-                  <Sparkles size={13} aria-hidden="true" />
-                  {sug.label}
-                </button>
-              ))}
+            <div className="suggestions-scroll">
+              <div className="flex overflow-x-auto pb-1 scrollbar-hide gap-2 touch-manipulation">
+                {SUGGESTIONS[mode].map((sug) => (
+                  <button
+                    key={sug.label}
+                    type="button"
+                    onClick={() => handleSendMessage(sug.text)}
+                    disabled={isProcessing}
+                    className={`btn-interactive shrink-0 flex items-center gap-1.5 min-h-[40px] px-4 py-2 rounded-full text-sm font-medium border disabled:opacity-50 disabled:cursor-not-allowed ${modeCfg.accentLight} ${modeCfg.accentLightBorder} ${modeCfg.accentText} hover:opacity-80`}
+                  >
+                    <Sparkles size={13} aria-hidden="true" />
+                    {sug.label}
+                  </button>
+                ))}
+              </div>
             </div>
 
             <div className="relative flex items-center">
@@ -284,7 +296,7 @@ export default function App() {
 
         {/* ── Sidebar ── */}
         <div
-          className={`fixed inset-y-0 right-0 z-50 w-80 bg-white border-l border-slate-200 transform transition-transform duration-300 ease-in-out motion-reduce:transition-none flex flex-col md:relative md:transform-none md:w-80 lg:w-96 safe-area-top safe-area-bottom ${showSidebar ? 'translate-x-0 shadow-2xl' : 'translate-x-full md:translate-x-0'}`}
+          className={`fixed inset-y-0 right-0 z-50 w-80 max-w-[calc(100vw-2rem)] bg-white border-l border-slate-200 transform transition-transform duration-300 ease-in-out motion-reduce:transition-none flex flex-col overflow-hidden md:relative md:inset-auto md:h-full md:max-w-none md:transform-none md:w-80 lg:w-96 safe-area-top safe-area-bottom ${showSidebar ? 'translate-x-0 shadow-2xl' : 'translate-x-full md:translate-x-0'}`}
         >
           <SidebarPanel
             mode={mode}
@@ -294,8 +306,6 @@ export default function App() {
           />
         </div>
       </div>
-
-      {showSettings && <SettingsModal onClose={() => setShowSettings(false)} />}
     </div>
   )
 }

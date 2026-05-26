@@ -37,7 +37,7 @@ Ainda sem runner automatizado. Para validar:
 
 1. Inicie o servidor: `npm run dev`
 2. Abra `http://localhost:5173`
-3. Configure sua chave OpenRouter em ⚙️ Configurações
+3. Configure `OPENROUTER_API_KEY` no `.env` (local) ou nas env vars da Vercel
 4. Para cada cenário, use o input descrito no YAML
 5. Verifique no Inspetor IA:
    - **Thought** do NLU: intent classificado

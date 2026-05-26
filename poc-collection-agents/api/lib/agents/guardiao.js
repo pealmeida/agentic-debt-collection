@@ -2,6 +2,18 @@ import { callOpenRouter, parseJSON } from '../openrouter.js'
 import { getCdcGuidelines, checkGuardrailViolations } from '../tools.js'
 import { scanDraftForLeakage } from '../security.js'
 
+const GUARDIAO_SCHEMA = {
+  type: 'object',
+  properties: {
+    status: { type: 'string', enum: ['APROVADO', 'REJEITADO'] },
+    feedback: { type: 'string', description: 'Feedback para reescrita se rejeitado' },
+    risk_level: { type: 'string', enum: ['BAIXO', 'MÉDIO', 'ALTO'] },
+    cdc_articles_checked: { type: 'array', items: { type: 'string' } },
+  },
+  required: ['status', 'feedback', 'risk_level', 'cdc_articles_checked'],
+  additionalProperties: false,
+}
+
 /**
  * Agente Guardião (Compliance)
  *
@@ -43,6 +55,7 @@ export async function run(state, { agent, openrouter }) {
         tools: toolCalls,
         rag: ragContext,
         tokens: 0,
+        usage: { prompt_tokens: 0, completion_tokens: 0, total_tokens: 0 },
         latency_ms: 0,
       },
     }
@@ -70,14 +83,13 @@ export async function run(state, { agent, openrouter }) {
         tools: toolCalls,
         rag: ragContext,
         tokens: 0,
+        usage: { prompt_tokens: 0, completion_tokens: 0, total_tokens: 0 },
         latency_ms: 0,
       },
     }
   }
 
   // ── Layer 2: Surface upstream security threats to LLM judge ───────────────
-  // If orchestrator flagged MEDIUM threats (user input had suspicious patterns
-  // but was not blocked), we inject that context into the LLM audit prompt.
   const hasUpstreamThreats = security_threats.length > 0
   const threatContext = hasUpstreamThreats
     ? `\n\nALERTA DE SEGURANÇA: O input do usuário ativou ${security_threats.length} detector(es) de segurança (severidade: ${security_severity}): ${security_threats.map((t) => t.threat).join(', ')}. Seja mais criterioso na avaliação.`
@@ -102,7 +114,7 @@ export async function run(state, { agent, openrouter }) {
 
   const { content, usage, latencyMs } = await callOpenRouter({
     model: agent.model,
-    temperature: 0.0,
+    temperature: agent.temperature ?? 0.0,
     system: agent.system_prompt + threatContext,
     messages: [
       {
@@ -110,24 +122,10 @@ export async function run(state, { agent, openrouter }) {
         content: `Avalie este texto de cobrança quanto ao CDC brasileiro:\n\n"${draft_response}"\n\nContexto: intent=${detected_intent}, user_role=${user_role}\nDiretrizes CDC: ${JSON.stringify(cdcResult.result)}${hasUpstreamThreats ? `\n\nThreat signals detectados no input original: ${security_threats.map((t) => `${t.threat} (${t.detail})`).join('; ')}` : ''}`,
       },
     ],
-    responseFormat: {
-      type: 'json_schema',
-      json_schema: {
-        name: 'guardiao_output',
-        strict: true,
-        schema: {
-          type: 'object',
-          properties: {
-            status: { type: 'string', enum: ['APROVADO', 'REJEITADO'] },
-            feedback: { type: 'string', description: 'Feedback para reescrita se rejeitado' },
-            risk_level: { type: 'string', enum: ['BAIXO', 'MÉDIO', 'ALTO'] },
-            cdc_articles_checked: { type: 'array', items: { type: 'string' } },
-          },
-          required: ['status', 'feedback', 'risk_level', 'cdc_articles_checked'],
-          additionalProperties: false,
-        },
-      },
-    },
+    schema: GUARDIAO_SCHEMA,
+    schemaName: 'guardiao_output',
+    jsonStrategy: agent.json_strategy,
+    promptHints: agent.prompt_hints,
     apiKey: openrouter.apiKey,
     baseUrl: openrouter.baseUrl,
   })
@@ -160,6 +158,7 @@ export async function run(state, { agent, openrouter }) {
       tools: toolCalls,
       rag: ragContext,
       tokens: usage.total_tokens,
+      usage,
       latency_ms: latencyMs,
     },
   }

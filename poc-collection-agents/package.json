@@ -8,7 +8,8 @@
     "build": "vite build",
     "preview": "vite preview",
     "test": "node scripts/smoke-test.mjs",
-    "demo:fallback": "node scripts/fallback-demo.mjs"
+    "demo:fallback": "node scripts/fallback-demo.mjs",
+    "test:browser": "node scripts/browser-prompt-test.mjs"
   },
   "dependencies": {
     "js-yaml": "^4.1.1",

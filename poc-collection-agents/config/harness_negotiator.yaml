@@ -1,15 +1,141 @@
-version: "1.1"
+version: "1.2"
 domain: credit_collection
 
 # ─── Provider Configuration ───────────────────────────────────────────────────
 # Loaded at runtime by api/lib/harness.js.
-# All model slugs follow the OpenRouter format: provider/model-name
-# Override the default model globally via env var OPENROUTER_DEFAULT_MODEL.
+# All model slugs follow the OpenRouter format: provider/model-name.
+#
+# Switching models is a one-line change:
+#   • OPENROUTER_MODEL_PROFILE=<profile_id>   → switch the entire pipeline.
+#   • OPENROUTER_DEFAULT_MODEL=<slug>         → legacy: blast every agent with the same slug.
+#   • Per-agent override via agents[].model   → highest precedence baseline.
+#
+# Each profile tunes the agnostic interface for the model family it targets
+# (JSON strategy, prompt hints, temperature, pricing).
+# See api/lib/openrouter.js for how each json_strategy is rendered.
 
 providers:
   default:
     type: openrouter
     base_url: https://openrouter.ai/api/v1
+
+# ─── Active Profile ───────────────────────────────────────────────────────────
+# Selected at runtime. Override with env var OPENROUTER_MODEL_PROFILE.
+
+active_profile: gemini-flash-lite
+
+# ─── Model Profiles ───────────────────────────────────────────────────────────
+# Each profile maps every agent role → run-config (model, temperature, JSON
+# strategy, prompt hints, pricing). Profiles are *agnostic* in surface but
+# carry *model-specific* tuning underneath.
+#
+# json_strategy:
+#   schema_strict  → response_format=json_schema strict=true   (OpenAI native)
+#   json_object    → response_format=json_object               (Gemini, Mistral, Claude via OR)
+#   prompted_json  → no response_format; relies on prompt + parseJSON regex
+#   text           → free text (Empatia draft)
+#
+# prompt_hints:
+#   gemini_flash   → append explicit "respond ONLY with JSON" + tighten context windows
+#   openai_strict  → no extra hints (default OpenAI behavior)
+#   claude_xml     → suggest XML thinking blocks (reserved for future Anthropic profile)
+
+model_profiles:
+  # ── Gemini 2.5 Flash Lite — fast, cheap, json_object friendly ──────────────
+  gemini-flash-lite:
+    label: "Gemini 2.5 Flash Lite"
+    description: "Fast, low-cost. Uses json_object mode + Gemini-tuned prompt hints to keep small-model outputs parseable."
+    provider: openrouter
+    agents:
+      agente_escuta_nlu:
+        model: google/gemini-2.5-flash-lite
+        temperature: 0.1
+        json_strategy: json_object
+        prompt_hints: gemini_flash
+        history_window: 4
+        pricing: { input_per_1m_usd: 0.10, output_per_1m_usd: 0.40 }
+      agente_motor_acordo:
+        model: google/gemini-2.5-flash-lite
+        temperature: 0.0
+        json_strategy: json_object
+        prompt_hints: gemini_flash
+        pricing: { input_per_1m_usd: 0.10, output_per_1m_usd: 0.40 }
+      agente_empatia_copywriter:
+        model: google/gemini-2.5-flash-lite
+        temperature: 0.55
+        json_strategy: text
+        prompt_hints: gemini_flash
+        pricing: { input_per_1m_usd: 0.10, output_per_1m_usd: 0.40 }
+      agente_guardiao_compliance:
+        model: google/gemini-2.5-flash-lite
+        temperature: 0.0
+        json_strategy: json_object
+        prompt_hints: gemini_flash
+        pricing: { input_per_1m_usd: 0.10, output_per_1m_usd: 0.40 }
+
+  # ── OpenAI blend (4o + 4o-mini) — original config kept for fast rollback ──
+  openai-blend:
+    label: "OpenAI Blend (4o + 4o-mini)"
+    description: "Production-quality blend: 4o-mini for high-volume agents, 4o for Motor & Guardião."
+    provider: openrouter
+    agents:
+      agente_escuta_nlu:
+        model: openai/gpt-4o-mini
+        temperature: 0.1
+        json_strategy: schema_strict
+        prompt_hints: openai_strict
+        history_window: 6
+        pricing: { input_per_1m_usd: 0.15, output_per_1m_usd: 0.60 }
+      agente_motor_acordo:
+        model: openai/gpt-4o
+        temperature: 0.0
+        json_strategy: schema_strict
+        prompt_hints: openai_strict
+        pricing: { input_per_1m_usd: 2.50, output_per_1m_usd: 10.00 }
+      agente_empatia_copywriter:
+        model: openai/gpt-4o-mini
+        temperature: 0.7
+        json_strategy: text
+        prompt_hints: openai_strict
+        pricing: { input_per_1m_usd: 0.15, output_per_1m_usd: 0.60 }
+      agente_guardiao_compliance:
+        model: openai/gpt-4o
+        temperature: 0.0
+        json_strategy: schema_strict
+        prompt_hints: openai_strict
+        pricing: { input_per_1m_usd: 2.50, output_per_1m_usd: 10.00 }
+
+  # ── Claude Haiku 3.5 — Anthropic budget tier ──────────────────────────────
+  claude-haiku:
+    label: "Claude 3.5 Haiku"
+    description: "Anthropic budget tier via OpenRouter. Uses json_object + Claude tone hints."
+    provider: openrouter
+    agents:
+      agente_escuta_nlu:
+        model: anthropic/claude-3.5-haiku
+        temperature: 0.1
+        json_strategy: json_object
+        prompt_hints: claude_xml
+        history_window: 6
+        pricing: { input_per_1m_usd: 0.80, output_per_1m_usd: 4.00 }
+      agente_motor_acordo:
+        model: anthropic/claude-3.5-haiku
+        temperature: 0.0
+        json_strategy: json_object
+        prompt_hints: claude_xml
+        pricing: { input_per_1m_usd: 0.80, output_per_1m_usd: 4.00 }
+      agente_empatia_copywriter:
+        model: anthropic/claude-3.5-haiku
+        temperature: 0.6
+        json_strategy: text
+        prompt_hints: claude_xml
+        pricing: { input_per_1m_usd: 0.80, output_per_1m_usd: 4.00 }
+      agente_guardiao_compliance:
+        model: anthropic/claude-3.5-haiku
+        temperature: 0.0
+        json_strategy: json_object
+        prompt_hints: claude_xml
+        pricing: { input_per_1m_usd: 0.80, output_per_1m_usd: 4.00 }
 
 # ─── Agents ───────────────────────────────────────────────────────────────────
 

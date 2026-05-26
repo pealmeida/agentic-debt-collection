@@ -48,17 +48,46 @@ Converte mensagens do WhatsApp/CRM para o schema unificado. O parâmetro `user_r
 Orquestrador in-house (sem framework) em `api/orchestrate.js`. 4 agentes definidos
 no harness YAML, executados sequencialmente via OpenRouter:
 
-| Agente | ID | Model padrão | MCP / Tools |
-|--------|-----|--------------|-------------|
-| Escuta Ativa | `agente_escuta_nlu` | openai/gpt-4o-mini | NLU + sentimento (structured output) |
-| Motor de Acordo | `agente_motor_acordo` | openai/gpt-4o | `get_debt_status`, `get_politicas_desconto`, `calculate_amortization` |
-| Empatia | `agente_empatia_copywriter` | openai/gpt-4o-mini | Persona por `user_role` |
-| Guardião | `agente_guardiao_compliance` | openai/gpt-4o | `check_guardrail_violations`, `get_cdc_guidelines`, leakage scan |
+| Agente | ID | Função | MCP / Tools |
+|--------|-----|--------|-------------|
+| Escuta Ativa | `agente_escuta_nlu` | Intent + sentimento (structured output) | — |
+| Motor de Acordo | `agente_motor_acordo` | Cálculo da proposta | `get_debt_status`, `get_politicas_desconto`, `calculate_amortization` |
+| Empatia | `agente_empatia_copywriter` | Copywriting por persona | — |
+| Guardião | `agente_guardiao_compliance` | Compliance CDC (4 camadas) | `check_guardrail_violations`, `get_cdc_guidelines`, leakage scan |
 
 Cada agente é um módulo isolado em `api/lib/agents/` retornando `{ patch, trace }`.
 O loop Empatia → Guardião pode disparar self-correction até `max_attempts` vezes (config no YAML).
 
-**Estado atual:** pipeline real via OpenRouter (com BYOK opcional) + fallback simulado
+#### Model Profiles (framework agnóstico + tuning por modelo)
+
+O modelo de cada agente NÃO está fixado no código. O YAML define **model profiles** — conjuntos coesos de (model, temperatura, estratégia JSON, hints de prompt, pricing) — e o orquestrador resolve via `resolveAgent(id)` em `api/lib/harness.js`.
+
+| Profile | Quando usar | JSON strategy |
+|---------|-------------|---------------|
+| `gemini-flash-lite` (default) | Demos baratas, alta vazão | `json_object` + hint `gemini_flash` |
+| `openai-blend` | Produção / qualidade máxima | `schema_strict` |
+| `claude-haiku` | Anthropic budget tier | `json_object` + hint `claude_xml` |
+
+Trocar de modelo é uma única env var:
+
+```bash
+OPENROUTER_MODEL_PROFILE=openai-blend npm run dev
+```
+
+A camada `api/lib/openrouter.js` mapeia a estratégia para o `response_format` adequado:
+
+- `schema_strict` → `{type: 'json_schema', json_schema: {strict: true, schema}}` (OpenAI)
+- `json_object` → `{type: 'json_object'}` (Gemini, Claude, Mistral via OpenRouter)
+- `prompted_json` → sem `response_format` (prompt sugere JSON + `parseJSON` regex)
+- `text` → resposta livre (Empatia)
+
+E aplica `promptHints` (`gemini_flash`, `claude_xml`, …) para anexar um sufixo de contrato JSON ao system prompt quando o modelo subjacente se beneficia disso. Os prompts base no YAML permanecem 100% agnósticos.
+
+#### Custo
+
+`estimateCostUsd(resolvedAgent, usage)` calcula `prompt_tokens * input_per_1m / 1M + completion_tokens * output_per_1m / 1M` lendo o `pricing` do profile. Sem pricing, cai para um rate blended legado (`0.008/1K`).
+
+**Estado atual:** pipeline real via OpenRouter + fallback simulado
 no frontend cobrindo 100% das features quando não há chave configurada.
 
 ### 3. Harness e RAG
