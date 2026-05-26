@@ -1,6 +1,23 @@
 import { User, Bot, Clock, Check, Copy, CheckCheck, FileText, Target, AlertTriangle, ShieldAlert, Zap } from 'lucide-react'
 import { formatTime } from '../utils.js'
 
+function renderMessageText(text) {
+  if (!text?.includes('**')) return text
+
+  const segments = text.split(/(\*\*\S(?:[\s\S]*?\S)?\*\*)/g)
+
+  return segments.map((segment, index) => {
+    if (!segment.startsWith('**') || !segment.endsWith('**')) return segment
+
+    const content = segment.slice(2, -2)
+    return (
+      <strong key={`${index}-${content}`} className="font-semibold">
+        {content}
+      </strong>
+    )
+  })
+}
+
 /**
  * Single chat bubble renderer.
  *
@@ -83,7 +100,7 @@ export function ChatMessage({
               Proposta Recusada
             </div>
           )}
-          {msg.text}
+          {renderMessageText(msg.text)}
 
           {showPixCta && (
             <div className="mt-3 pt-3 border-t border-emerald-100">
