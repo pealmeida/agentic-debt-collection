@@ -10,6 +10,8 @@ Integra OpenRouter para execução real de um pipeline multiagente (NLU → Moto
 - **Self-correction:** Guardião → Empatia loop quando compliance CDC falha (max 2x)
 - **Multi-turn memory:** histórico de conversa enviado ao backend a cada turno
 - **Security layer:** detecção de jailbreak, prompt injection e token flooding antes da pipeline
+- **Indicador de digitação no chat:** três pontos animados (estilo WhatsApp) enquanto a pipeline processa — feedback imediato sem expor rascunhos
+- **Progresso da pipeline:** barra compacta acima do chat (`PipelineMiniBar`) + Inspetor no sidebar para engenheiros
 - **Inspetor IA:** chain-of-thought, tools MCP, contexto RAG — tudo inspecionável
 - **Collections Engineer Cockpit:** Observability (tokens, latência, custo, sentimento) + Harness Studio
 - **Fallback de POC:** sem chave/sem backend, a UI roda cenários determinísticos claramente marcados como simulação
@@ -43,6 +45,16 @@ npm run dev
 
 Abra `http://localhost:5173`. O `npm run dev` sobe o Vite **e** as rotas `/api/*` localmente (`.env` é carregado no backend). Sem chave OpenRouter, a UI entra no modo simulação de POC.
 
+### Testes e evals
+
+```bash
+npm test                    # 152 smoke tests (determinísticos, < 2s)
+npm run eval:journey        # journey end-to-end contra OpenRouter (todos os profiles)
+npm run eval:journey balanced-cost   # um profile (~10-15s, ~$0.001)
+```
+
+Ver [Eval Harness](docs/eval_harness.md) e [Performance](docs/performance.md) para interpretação dos resultados.
+
 ## Demo ao vivo
 
 1. Configure `OPENROUTER_API_KEY` no `.env` (local) ou nas env vars da Vercel (deploy)
@@ -69,7 +81,7 @@ Cenários rápidos (detalhes e roteiro de 5 min no guia):
 | Variável | Valor |
 |----------|-------|
 | `OPENROUTER_API_KEY` | `sk-or-v1-...` |
-| `OPENROUTER_MODEL_PROFILE` | `openrouter-specialist` *(default)* / `gemini-flash-lite` / `openai-blend` / `claude-haiku` |
+| `OPENROUTER_MODEL_PROFILE` | **`balanced-cost`** *(recomendado — produção)* / `gemini-flash-lite` / `openai-blend` / `claude-haiku` / `openrouter-specialist` |
 | `OPENROUTER_DEFAULT_MODEL` | *(opcional, legacy — força um único slug em todos os agentes)* |
 
 5. Deploy. A Vercel detecta Vite automaticamente.
@@ -82,18 +94,19 @@ Após deploy: `https://seu-deploy.vercel.app/api/healthz`
 {
   "ok": true,
   "has_key": true,
-  "profile": { "id": "openrouter-specialist", "label": "OpenRouter Specialist Blend" },
+  "profile": { "id": "balanced-cost", "label": "Balanced Cost (Gemini + Mistral)" },
   "agents": [
     { "id": "agente_escuta_nlu", "model": "google/gemini-2.5-flash-lite", "json_strategy": "json_object", "prompt_hints": "gemini_flash" },
-    { "id": "agente_motor_acordo", "model": "deepseek/deepseek-v4-flash", "json_strategy": "json_object", "prompt_hints": "strict_json" },
-    { "id": "agente_empatia_copywriter", "model": "qwen/qwen3.6-flash", "json_strategy": "text", "prompt_hints": null },
+    { "id": "agente_motor_acordo", "model": "mistralai/mistral-small-2603", "json_strategy": "json_object", "prompt_hints": "strict_json" },
+    { "id": "agente_empatia_copywriter", "model": "google/gemini-2.5-flash-lite", "json_strategy": "text", "prompt_hints": "gemini_flash" },
     { "id": "agente_guardiao_compliance", "model": "mistralai/mistral-small-2603", "json_strategy": "json_object", "prompt_hints": "strict_json" }
   ],
   "available_profiles": [
-    { "id": "openrouter-specialist", "label": "OpenRouter Specialist Blend" },
+    { "id": "balanced-cost", "label": "Balanced Cost (Gemini + Mistral)" },
     { "id": "gemini-flash-lite", "label": "Gemini 2.5 Flash Lite" },
     { "id": "openai-blend", "label": "OpenAI Blend (4o + 4o-mini)" },
-    { "id": "claude-haiku", "label": "Claude 3.5 Haiku" }
+    { "id": "claude-haiku", "label": "Claude 3.5 Haiku" },
+    { "id": "openrouter-specialist", "label": "OpenRouter Specialist Blend" }
   ]
 }
 ```
@@ -103,14 +116,17 @@ Após deploy: `https://seu-deploy.vercel.app/api/healthz`
 Tudo passa por **model profiles** em `config/harness_negotiator.yaml`. Mude com uma única env var:
 
 ```bash
-# Padrão: modelos especializados por papel
-OPENROUTER_MODEL_PROFILE=openrouter-specialist
+# Recomendado: melhor tradeoff custo/latência (Gemini Flash Lite + Mistral Small)
+OPENROUTER_MODEL_PROFILE=balanced-cost
 
 # Compatibilidade legada (4o-mini + 4o em strict schema)
 OPENROUTER_MODEL_PROFILE=openai-blend
 
 # Anthropic budget tier
 OPENROUTER_MODEL_PROFILE=claude-haiku
+
+# 4 vendors — útil para demo de diversidade; Motor pode estourar maxDuration no Vercel
+OPENROUTER_MODEL_PROFILE=openrouter-specialist
 ```
 
 Cada profile define `model`, `temperature`, `json_strategy` e `pricing` por agente. Adicionar um profile novo é editar o YAML — nada em código.
@@ -154,12 +170,18 @@ poc-collection-agents/
 ├── docs/
 │   ├── prd_requisitos.md
 │   ├── arquitetura_poc.md
-│   ├── golden_principles.md ← Invariantes mecânicas
-│   └── eval_harness.md      ← Como rodar cenários de avaliação
+│   ├── golden_principles.md     ← Invariantes mecânicas
+│   ├── eval_harness.md        ← Como rodar cenários de avaliação
+│   └── performance.md         ← Análise cost/speed e decisões arquiteturais
+├── scripts/
+│   ├── smoke-test.mjs           ← npm test (152 assertions)
+│   └── journey-eval.mjs         ← npm run eval:journey
 ├── src/                     ← React + Vite
 │   ├── App.jsx
 │   ├── services/orchestrator.js
 │   └── components/
+│       ├── ProgressIndicator.jsx  ← indicador (...) no chat enquanto processa
+│       ├── PipelineMiniBar.jsx    ← progresso compacto acima do chat
 │       └── EngineerCockpit.jsx
 ├── AGENTS.md                ← Índice para agentes de IA
 ├── vercel.json
@@ -174,6 +196,7 @@ poc-collection-agents/
 - [Arquitetura](docs/arquitetura_poc.md)
 - [Golden Principles](docs/golden_principles.md)
 - [Eval Harness](docs/eval_harness.md)
+- [Performance — cost/speed e decisões arquiteturais](docs/performance.md)
 - [Harness LangGraph](config/harness_negotiator.yaml)
 
 ## Referências

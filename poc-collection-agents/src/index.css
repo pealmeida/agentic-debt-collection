@@ -71,3 +71,23 @@
   pointer-events: none;
   background: linear-gradient(to left, rgb(255 255 255), transparent);
 }
+
+/* WhatsApp/iMessage-style typing dots used by ProgressIndicator. The global
+   prefers-reduced-motion rule above (animation-duration: 0.01ms !important)
+   automatically disables the animation for users who request it. */
+@keyframes typing-dot-bounce {
+  0%,
+  60%,
+  100% {
+    transform: translateY(0);
+    opacity: 0.45;
+  }
+  30% {
+    transform: translateY(-4px);
+    opacity: 1;
+  }
+}
+
+.typing-dot {
+  animation: typing-dot-bounce 1.2s ease-in-out infinite;
+}

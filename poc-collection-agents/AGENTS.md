@@ -44,8 +44,9 @@ poc-collection-agents/
 │   │   └── pipeline-events.js   ← handler que aplica eventos SSE no state React
 │   └── components/
 │       ├── ChatMessage.jsx      ← bolha de mensagem (todas as variantes)
+│       ├── ProgressIndicator.jsx← indicador (...) no chat enquanto processa
 │       ├── ModeSwitchBar.jsx    ← tabs Cliente / Engineer
-│       ├── PipelineMiniBar.jsx  ← mini-progresso (mobile)
+│       ├── PipelineMiniBar.jsx  ← progresso compacto da pipeline (acima do chat)
 │       ├── SidebarPanel.jsx     ← painel direito (Grafo / Inspetor / Cockpit)
 │       ├── InspectorPanel.jsx   ← terminal dark de Thought/Tools/RAG
 │       └── EngineerCockpit.jsx  ← Cockpit Collections Engineer (Observability + Harness Studio)
@@ -54,7 +55,8 @@ poc-collection-agents/
     ├── prd_requisitos.md        ← PRD completo
     ├── arquitetura_poc.md       ← diagrama e stack
     ├── golden_principles.md     ← invariantes mecânicas (leia antes de editar agentes)
-    └── eval_harness.md          ← como rodar e interpretar os cenários de eval
+    ├── eval_harness.md          ← como rodar e interpretar os cenários de eval
+    └── performance.md           ← cost/speed, Guardião fast-path, UX typing indicator
 ```
 
 ---

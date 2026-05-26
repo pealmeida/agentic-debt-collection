@@ -14,7 +14,7 @@ This document is **the single source of truth** for *why* each agent uses the mo
 | Threat turn w/ self-correction | ~17.5s | **~7-11s** | −40 to −60% |
 | Cost / happy turn | $0.0038 (openai-blend) | **$0.00038** | −90% |
 | Cost / threat turn | $0.0085 | **$0.00073** | −91% |
-| First-feedback latency (UI) | ~6s (single generic spinner) | **~100ms** (live per-agent status) | ~60× |
+| First-feedback latency (UI) | ~6s (single generic spinner) | **~100ms** (typing indicator `...` in chat bubble) | ~60× |
 | Vendor diversity | single or all-one | **2 vendors min, ≥1 non-OpenAI** | enforced via smoke test |
 
 Total OpenRouter spend for two-scenario journey eval: **$0.00111** (one-third of a cent).
@@ -64,21 +64,21 @@ Final assignment in the `balanced-cost` profile (`config/harness_negotiator.yaml
 
 Work is ordered by **measured impact**, descending. All measurements come from `npm run eval:journey balanced-cost` against live OpenRouter.
 
-### 1. Live per-agent UX feedback — −60× perceived latency (no wall-clock change)
+### 1. In-chat typing indicator — −60× perceived latency (no wall-clock change)
 
 **Before.** A single "Orquestrando Multiagentes..." spinner was displayed for the entire 4-7s pipeline. The user had no signal whether the system was actually doing anything or hung. From a UX-research perspective this is the worst possible loader: indeterminate, identical, slow.
 
-**After.** `src/components/ProgressIndicator.jsx` reads the existing SSE events (`agent_start` / `agent_end` / `state_update`) that `applyPipelineEvent` already publishes and renders a live status line plus a 4-dot pipeline graph. Each dot transitions `pending → active → completed` as the pipeline advances. The status line surfaces *meaningful state as it arrives*, never the un-vetted Empatia draft (GP-01 preserved):
+**After (current).** `src/components/ProgressIndicator.jsx` renders a **WhatsApp-style typing bubble** — three bouncing dots (`...`) inside the same AI message shape (`Bot` avatar + `modeCfg.msgBg` + `rounded-2xl rounded-tl-sm`). It appears in the chat thread the instant `isProcessing` is true (~100ms after send). The user reads it as "the assistant is composing a reply", not as an operational dashboard widget.
 
-| Phase (~time) | Status line | Pipeline dots |
-|---|---|---|
-| t = 100ms | *"Escutando sua mensagem..."* | ● ○ ○ ○ |
-| t ≈ 1s | *"Calculando proposta dentro da alçada (Pedido de desconto, desesperado)..."* | ✓ ● ○ ○ |
-| t ≈ 2.5s | *"Proposta: R$ 840,00 em 5x. Redigindo resposta empática..."* | ✓ ✓ ● ○ |
-| t ≈ 3.5s | *"Verificando conformidade CDC (Art. 42/71)..."* | ✓ ✓ ✓ ● |
-| t ≈ 4s | (final reply lands) | ✓ ✓ ✓ ✓ |
+| Concern | Where it lives |
+|---|---|
+| Conversational "someone is typing" affordance | **Chat bubble** (`ProgressIndicator`) |
+| Per-agent pipeline state (NLU → Motor → Empatia → Guardião) | **`PipelineMiniBar`** above the chat + **Sidebar Inspector** |
+| Chain-of-thought, tools, RAG, tokens/cost | **Engineer Cockpit** / Inspector panel |
 
-This is the single largest UX win of the whole engagement. It costs zero ms and zero $ — pure information surfacing.
+This split is intentional: the chat stays conversational; engineers still get full observability outside the message thread. GP-01 is preserved — the bubble never surfaces the un-vetted Empatia draft, only abstract phase via an `sr-only aria-live="polite"` announcement for screen readers ("Escutando sua mensagem" → "Calculando proposta" → "Redigindo resposta empática" → "Verificando conformidade").
+
+Animation respects `prefers-reduced-motion` via the global rule in `src/index.css` (`.typing-dot` keyframe).
 
 ### 2. Risk-tiered Guardião (L3 LLM-judge fast-path) — −700 to −1300ms / turn
 
@@ -230,7 +230,8 @@ Every measurement is reproducible. From `poc-collection-agents/`:
 4. **UI**:
    ```bash
    npm run dev
-   # → open http://localhost:5173, send "Perdi meu emprego" — watch the ProgressIndicator advance live
+   # → open http://localhost:5173, send "Perdi meu emprego" — watch the (...) typing bubble in chat;
+   #   expand PipelineMiniBar / Sidebar for per-agent progress
    ```
 
 ---
@@ -242,7 +243,7 @@ These are the next-most-promising optimizations not implemented in this iteratio
 | # | Lever | Expected | Why not now |
 |---|---|---|---|
 | 1 | Pre-fetch MCP tools (`getDebtStatus`, `getDiscountPolicy`) in parallel with NLU | 0ms in mock mode, ~200ms when MCP is real network I/O | No real ROI on mocks; revisit at MCP integration |
-| 2 | Stream Empatia tokens to the Inspector panel (engineer cockpit only, never chat) | Real-time visual feedback in cockpit | Adds SSE streaming plumbing; the chat-side ProgressIndicator already covers user UX |
+| 2 | Stream Empatia tokens to the Inspector panel (engineer cockpit only, never chat) | Real-time visual feedback in cockpit | Adds SSE streaming plumbing; chat-side typing indicator already covers end-user UX |
 | 3 | Pre-warm an OR HTTP/2 connection at function cold start | ~50-100ms on first request | Vercel function lifecycle makes this brittle; revisit if cold starts become a complaint |
 | 4 | Trim Motor input context (drop unused debt fields) | ~50-100 tokens × $0.15/1M = trivial | Cost already negligible; readability of the audit trail matters more |
 | 5 | Replace L3 LLM with a smaller fine-tuned classifier for CDC compliance | -300-500ms when L3 does fire | Requires labelled training corpus; production-only path |
@@ -259,6 +260,8 @@ These are the next-most-promising optimizations not implemented in this iteratio
 | `api/lib/agents/guardiao.js` | Risk-tiered Guardião with L3 fast-path |
 | `api/lib/agents/empatia.js` | `EMPATIA_MAX_TOKENS` cap |
 | `api/lib/openrouter.js` | `maxTokens` plumbing on the request body |
-| `src/components/ProgressIndicator.jsx` | Live per-agent UX feedback |
+| `src/components/ProgressIndicator.jsx` | In-chat typing indicator (`...` bubble) |
+| `src/components/PipelineMiniBar.jsx` | Compact per-agent progress above chat |
+| `src/index.css` | `.typing-dot` animation (respects reduced motion) |
 | `scripts/journey-eval.mjs` | End-to-end measurement harness (also `npm run eval:journey`) |
 | `scripts/smoke-test.mjs` | All deterministic regression assertions (152 currently) |

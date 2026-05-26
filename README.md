@@ -25,14 +25,14 @@ O mesmo pipeline atende dois contextos:
 
 - **Pipeline multiagente real** via OpenRouter, com quatro agentes independentes em `api/lib/agents/`.
 - **Harness declarativo em YAML** (`config/harness_negotiator.yaml`) para prompts, modelos, guardrails, tools, pricing e cenários de eval.
-- **Model profiles** para alternar famílias de modelos por env var (`gemini-flash-lite`, `openai-blend`, `claude-haiku`).
+- **Model profiles** para alternar famílias de modelos por env var (`balanced-cost`, `gemini-flash-lite`, `openai-blend`, `claude-haiku`, `openrouter-specialist`).
 - **Security gate Layer 0** antes do pipeline: token flooding, prompt injection e jailbreak.
-- **Guardião de compliance** como último nó obrigatório, com regex CDC, leakage scan e LLM-as-judge.
+- **Guardião de compliance** como último nó obrigatório, com regex CDC, leakage scan, LLM-as-judge e **fast-path L3** em turnos de baixo risco.
 - **Self-correction** Guardião -> Empatia quando uma resposta falha em compliance.
 - **MCP mocks determinísticos** para dívida, política de desconto, amortização e diretrizes CDC.
 - **Fallback offline completo**: sem chave OpenRouter, a UI simula todos os cenários para demo.
-- **UI React/Vite** com chat dual-persona, grafo do pipeline, inspetor de execução e cockpit de observabilidade.
-- **Testes smoke** cobrindo segurança, harness, tools, fallback, profiles, custo e parsing JSON.
+- **UI React/Vite** com chat dual-persona, indicador de digitação (`...`) no chat, grafo do pipeline, inspetor de execução e cockpit de observabilidade.
+- **Testes smoke** (152 assertions) e **journey eval** end-to-end (`npm run eval:journey`) cobrindo segurança, harness, tools, fallback, profiles, custo e parsing JSON.
 
 ## Arquitetura
 
@@ -50,8 +50,8 @@ agentic-debt-collection/
     │       └── tools.js            # mocks MCP determinísticos
     ├── config/
     │   └── harness_negotiator.yaml # fonte da verdade do comportamento
-    ├── docs/                       # PRD, arquitetura, evals, prompt guide
-    ├── scripts/                    # smoke test, browser prompt test, fallback demo
+    ├── docs/                       # PRD, arquitetura, evals, performance, prompt guide
+    ├── scripts/                    # smoke test, journey eval, browser prompt test
     └── src/                        # React + Vite
 ```
 
@@ -91,22 +91,25 @@ Sem `OPENROUTER_API_KEY`, a aplicação roda em modo simulação. Para usar LLM 
 
 ```bash
 OPENROUTER_API_KEY=sk-or-v1-...
-OPENROUTER_MODEL_PROFILE=gemini-flash-lite
+OPENROUTER_MODEL_PROFILE=balanced-cost
 ```
 
 Profiles disponíveis:
 
 | Profile | Uso recomendado |
 |---------|-----------------|
-| `gemini-flash-lite` | Default, demos rápidas e baratas |
+| **`balanced-cost`** | **Default recomendado** — melhor tradeoff custo/latência (Gemini + Mistral) |
+| `gemini-flash-lite` | Single-vendor, demos baratas |
 | `openai-blend` | Maior qualidade, JSON schema estrito onde aplicável |
 | `claude-haiku` | Tier econômico Anthropic via OpenRouter |
+| `openrouter-specialist` | 4 vendors; Motor pode estourar timeout no Vercel |
 
 ## Scripts úteis
 
 ```bash
 npm run dev            # Vite + rotas /api locais
-npm test               # smoke tests
+npm test               # 152 smoke tests
+npm run eval:journey   # journey end-to-end contra OpenRouter
 npm run build          # build de produção
 npm run demo:fallback  # cenários determinísticos sem LLM
 npm run test:browser   # E2E dos prompts, requer Playwright e dev server ativo
@@ -140,7 +143,8 @@ Guia completo: [docs/prompt_guide.md](poc-collection-agents/docs/prompt_guide.md
 
 ## O que observar na demo
 
-- **Grafo**: progressão NLU -> Motor -> Empatia -> Guardião.
+- **Grafo / PipelineMiniBar**: progressão NLU -> Motor -> Empatia -> Guardião.
+- **Indicador de digitação**: três pontos animados no chat enquanto a pipeline processa.
 - **Inspetor IA**: resumo de execução, tools MCP chamadas e snippets RAG.
 - **Cockpit Engineer**: tokens, latência, custo estimado, sentimento e exportação de trace.
 - **Security block**: inputs maliciosos são bloqueados antes de qualquer chamada LLM.
@@ -155,7 +159,7 @@ Guia completo: [docs/prompt_guide.md](poc-collection-agents/docs/prompt_guide.md
 | Variável | Obrigatória | Descrição |
 |----------|-------------|-----------|
 | `OPENROUTER_API_KEY` | Sim para LLM real | Chave de servidor para OpenRouter |
-| `OPENROUTER_MODEL_PROFILE` | Não | Profile ativo; default vem do YAML |
+| `OPENROUTER_MODEL_PROFILE` | Não | Profile ativo; default `balanced-cost` no YAML |
 | `OPENROUTER_DEFAULT_MODEL` | Não | Override legado para forçar um único modelo |
 
 Health check:
@@ -183,7 +187,7 @@ npm test
 npm run build
 ```
 
-Os cenários de eval estão versionados em `config/harness_negotiator.yaml` e documentados em [docs/eval_harness.md](poc-collection-agents/docs/eval_harness.md).
+Os cenários de eval estão versionados em `config/harness_negotiator.yaml` e documentados em [docs/eval_harness.md](poc-collection-agents/docs/eval_harness.md). Análise de cost/speed e decisões arquiteturais: [docs/performance.md](poc-collection-agents/docs/performance.md).
 
 ## Status atual
 
@@ -199,7 +203,7 @@ Esta é uma POC funcional, pensada para avaliação técnica e discussão com es
 | MCP real / CRM real | Planejado |
 | WhatsApp/telefonia real | Planejado |
 | Persistência de sessões em banco | Planejado |
-| Runner automático de evals em CI | Planejado |
+| Runner automático de evals em CI | Parcial (`npm run eval:journey` local) |
 | Migração para LangGraph | Planejado quando houver mais ramos condicionais |
 
 ## Roadmap
@@ -221,5 +225,6 @@ Esta é uma POC funcional, pensada para avaliação técnica e discussão com es
 | [Arquitetura](poc-collection-agents/docs/arquitetura_poc.md) | Camadas, state graph, stack e próximos passos |
 | [Golden Principles](poc-collection-agents/docs/golden_principles.md) | Invariantes mecânicas do pipeline |
 | [Eval Harness](poc-collection-agents/docs/eval_harness.md) | Como validar cenários do YAML |
+| [Performance](poc-collection-agents/docs/performance.md) | Cost/speed, Guardião fast-path, UX typing indicator |
 | [AGENTS.md](poc-collection-agents/AGENTS.md) | Mapa do código para coding agents |
 | [Harness YAML](poc-collection-agents/config/harness_negotiator.yaml) | Prompts, models, guardrails, pricing e evals |

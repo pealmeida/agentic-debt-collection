@@ -21,7 +21,7 @@ poc-collection-agents/
 │  WhatsApp / CRM ➔ Schema Unificado de Mensagens                 │
 ├──────────────────────────────────────────────────────────────────┤
 │  UI (React/Vite) — src/App.jsx                                    │
-│  Chat dual-persona │ Inspetor IA │ Grafo │ Logs │ Cockpit        │
+│  Chat dual-persona │ Typing indicator (...) │ Inspetor │ Cockpit │
 ├──────────────────────────────────────────────────────────────────┤
 │  Security Gate (Layer 0) — api/lib/security.js                    │
 │  Token Flooding │ Prompt Injection │ Jailbreak │ Leakage Scan    │
@@ -64,15 +64,19 @@ O modelo de cada agente NÃO está fixado no código. O YAML define **model prof
 
 | Profile | Quando usar | JSON strategy |
 |---------|-------------|---------------|
-| `gemini-flash-lite` (default) | Demos baratas, alta vazão | `json_object` + hint `gemini_flash` |
-| `openai-blend` | Produção / qualidade máxima | `schema_strict` |
+| **`balanced-cost`** *(default)* | Produção POC — melhor tradeoff custo/latência | Gemini Flash Lite (NLU + Empatia) + Mistral Small (Motor + Guardião) |
+| `gemini-flash-lite` | Demos baratas, single-vendor | `json_object` + hint `gemini_flash` |
+| `openai-blend` | Qualidade máxima / legado | `schema_strict` |
 | `claude-haiku` | Anthropic budget tier | `json_object` + hint `claude_xml` |
+| `openrouter-specialist` | Demo multi-vendor (4 famílias) | misto — Motor pode estourar `maxDuration` |
 
 Trocar de modelo é uma única env var:
 
 ```bash
-OPENROUTER_MODEL_PROFILE=openai-blend npm run dev
+OPENROUTER_MODEL_PROFILE=balanced-cost npm run dev
 ```
+
+Detalhes de latência, custo por agente e tradeoffs: [performance.md](performance.md).
 
 A camada `api/lib/openrouter.js` mapeia a estratégia para o `response_format` adequado:
 
