@@ -48,7 +48,7 @@ Abra `http://localhost:5173`. O `npm run dev` sobe o Vite **e** as rotas `/api/*
 ### Testes e evals
 
 ```bash
-npm test                    # 156 smoke tests (determinísticos, < 2s)
+npm test                    # 169 smoke tests (determinísticos, < 2s)
 npm run eval:journey        # journey end-to-end contra OpenRouter (todos os profiles)
 npm run eval:journey balanced-cost   # um profile (~10-15s, ~$0.001)
 npm run eval:sweep          # todos os chips de demo pela pipeline real (~$0.005)
@@ -166,27 +166,33 @@ poc-collection-agents/
 │   └── lib/
 │       ├── harness.js       ← Leitor do YAML em runtime
 │       ├── openrouter.js    ← Wrapper OpenRouter
+│       ├── security.js      ← Detectores: injection, jailbreak, token flooding, leakage
 │       ├── tools.js         ← Contratos MCP (debt_status via request, políticas, CDC)
+│       ├── conversation.js  ← Memória de conversa + escada de desconto (two-tier)
 │       └── agents/          ← 4 agentes (nlu, motor, empatia, guardiao)
 ├── config/
 │   └── harness_negotiator.yaml  ← Fonte da verdade: prompts, models, guardrails, evals
 ├── docs/
+│   ├── prompt_guide.md          ← Prompts prontos para demo (copiar/colar)
 │   ├── prd_requisitos.md
 │   ├── arquitetura_poc.md
 │   ├── golden_principles.md     ← Invariantes mecânicas
-│   ├── eval_harness.md        ← Como rodar cenários de avaliação
-│   └── performance.md         ← Análise cost/speed e decisões arquiteturais
+│   ├── eval_harness.md          ← Como rodar cenários de avaliação
+│   └── performance.md           ← Análise cost/speed e decisões arquiteturais
 ├── scripts/
-│   ├── smoke-test.mjs           ← npm test (156 assertions, sem rede)
+│   ├── smoke-test.mjs           ← npm test (169 assertions, sem rede)
 │   ├── journey-eval.mjs         ← npm run eval:journey (multi-profile, real)
 │   ├── scenario-sweep.mjs       ← npm run eval:sweep (todos os chips, real)
 │   ├── fallback-demo.mjs        ← npm run demo:fallback (cenários de simulação)
 │   ├── browser-prompt-test.mjs  ← npm run test:browser (E2E Playwright)
 │   └── vite-api-plugin.js       ← serve /api/* no dev server
 ├── src/                     ← React + Vite
+│   ├── main.jsx                  ← entrypoint React
 │   ├── App.jsx                   ← chat, scroll inteligente, loop de eventos SSE
 │   ├── constants.js              ← modos, chips de sugestão, caso CRM mock
 │   ├── utils.js
+│   ├── shared/
+│   │   └── security.js           ← re-export client-side de api/lib/security.js
 │   ├── services/
 │   │   ├── orchestrator.js       ← cliente SSE + fallback de simulação
 │   │   ├── pipeline-events.js    ← aplica eventos SSE ao estado React

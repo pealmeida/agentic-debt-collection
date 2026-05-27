@@ -1,4 +1,5 @@
 import { callOpenRouter } from '../openrouter.js'
+import { lastAgentText } from '../conversation.js'
 
 /**
  * Hard cap on Empatia's draft length.
@@ -41,14 +42,20 @@ export async function run(state, { agent, openrouter }) {
     motor_reason,
     debt_info,
     message,
+    history = [],
     correction_feedback,
   } = state
+
+  // The previous assistant turn anchors tone + greeting + numbers so a
+  // follow-up reply reads as one continuous conversation, not a fresh start.
+  const previousAgentText = lastAgentText(history)
 
   const contextForLLM = {
     user_role,
     detected_intent,
     sentiment,
     original_message: message,
+    previous_agent_reply: previousAgentText ? previousAgentText.slice(0, 500) : null,
     calculated_proposal: calculated_proposal || null,
     tactic_note: motor_tactic_note || '',
     reason_no_proposal: motor_reason || '',

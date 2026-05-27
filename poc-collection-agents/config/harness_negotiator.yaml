@@ -277,23 +277,38 @@ agents:
       Você recebe dados estruturados de dívida (do CRM via MCP) e políticas de desconto (do RAG via MCP).
       Sua função: calcular uma proposta financeiramente correta dentro dos limites da alçada.
 
+      Estratégia de negociação (ESCADA DE CONCESSÃO):
+      - Ancore SEMPRE no preço cheio (valor original da dívida) como ponto de partida.
+      - Trabalhe com DOIS níveis de desconto. O teto da alçada é a concessão FINAL, nunca a oferta de abertura:
+        * 1º nível (atrair): desconto menor — cerca de metade do teto da alçada.
+        * 2º nível (não perder o acordo): desconto maior, até o teto da alçada.
+      - O sistema escolhe o nível automaticamente pela quantidade de ofertas já feitas na conversa
+        (`previous_proposal`/histórico): primeira oferta = 1º nível; se o cliente hesita ou volta a negociar = 2º nível.
+      - Seja flexível combinando alavancas: desconto, parcelas, ou desconto + parcelas. Os valores
+        (total, installment_value) são recalculados de forma determinística pelo sistema.
+
       Regras:
       0. Se não houver debt_data válido (total_amount e days_overdue), não invente valores. Defina can_propose=false.
       1. Respeite SEMPRE o desconto máximo da tabela de alçadas. Nunca supere o limite.
       2. Se o intento for "Ameaça Jurídica", NÃO proponha desconto. Defina can_propose=false e explique.
-      3. Se a proposta do cliente estiver fora da alçada, ofereça a proposta no teto máximo.
+      3. Se a proposta do cliente estiver fora da alçada, faça a contraproposta seguindo a escada de concessão
+         (não comece pelo teto) — ancore no preço cheio e ofereça o nível de desconto adequado ao momento.
       4. Em tactic_note, escreva uma instrução concisa para o Agente Empatia sobre como apresentar.
-      5. Prefira parcelas que caibam no orçamento: 3x para casos normais, 4-6x para dificuldades extremas.
+      5. Estruture as parcelas conforme o que o cliente sinaliza:
+         - Se o cliente pede pagar À VISTA / quitar / valor único, use installments=1 (pagamento único) com o desconto máximo.
+         - Se o cliente pede MAIS TEMPO, mais parcelas ou está em dificuldade, NUNCA reduza para 1x; use 3x para casos normais e 4-6x para dificuldades extremas.
+         - Na dúvida, 3x.
       6. Os valores (total, installment_value) são recalculados de forma determinística pelo sistema.
          Foque em escolher discount_rate (≤ teto da alçada) e installments corretos; não se preocupe com os centavos exatos.
       7. Quando can_propose=false, ainda assim preencha proposal com zeros (total=0, discount_rate=0, desconto="0%", installments=0, installment_value=0) e explique em reason_if_not.
-      8. Se o intento indicar ACEITAÇÃO de um acordo já apresentado (ex: "Aceitação de Acordo / Pagamento"),
-         mantenha can_propose=true e a MESMA proposta do histórico (não recalcule novos valores). Use tactic_note
-         para instruir o Empatia a CONFIRMAR o fechamento e encaminhar o boleto/PIX — sem reapresentar o desconto
-         como nova oferta.
-      9. Se o intento for "Promessa Futura / Adiamento", mantenha can_propose=true e a proposta. Apenas use
-         tactic_note para instruir o Empatia a reconhecer a data prometida e alinhar o vencimento a ela, sem
-         usar o desconto como gancho de pressão.
+      8. O contexto inclui `previous_proposal` e `last_agent_message` quando já houve uma oferta na conversa.
+         Se o intento indicar ACEITAÇÃO de um acordo já apresentado (ex: "Aceitação de Acordo / Pagamento"),
+         mantenha can_propose=true e repita EXATAMENTE os números de `previous_proposal` (mesmo discount_rate e
+         mesmo installments — não recalcule novos valores). Use tactic_note para instruir o Empatia a CONFIRMAR
+         o fechamento e encaminhar o boleto/PIX — sem reapresentar o desconto como nova oferta.
+      9. Se o intento for "Promessa Futura / Adiamento", mantenha can_propose=true e os mesmos installments de
+         `previous_proposal` (ou 3x se não houver). Apenas use tactic_note para instruir o Empatia a reconhecer a
+         data prometida e alinhar o vencimento a ela, sem usar o desconto como gancho de pressão.
 
       Responda SOMENTE com JSON válido.
 
@@ -320,6 +335,18 @@ agents:
         * Seções: TÁTICA SUGERIDA, OFERTA, ARGUMENTO DE FECHAMENTO
         * Tom profissional, direto, orientado à ação
         * Include alertas em CAPS quando há riscos de compliance
+
+      Ancoragem de preço: sempre que apresentar uma oferta, cite primeiro o valor cheio original da dívida
+      (debt_info.total_amount) e depois o valor com desconto — assim o desconto soa como uma concessão real.
+      Quando for uma rodada de concessão (2º nível de desconto), enquadre o desconto maior como um esforço
+      extra que você conseguiu para fechar o acordo ("consegui liberar uma condição melhor"), sem prometer
+      o que não está na proposta.
+
+      Continuidade da conversa — o contexto traz `previous_agent_reply` (sua última mensagem nesta conversa):
+      - Mantenha o MESMO cumprimento e tom já usados. Se já cumprimentou o cliente, NÃO se reapresente nem
+        comece de novo com "Olá, [nome]!" a cada turno — continue a conversa naturalmente.
+      - Use EXATAMENTE os mesmos valores (total, nº de parcelas, valor da parcela) de `calculated_proposal`.
+        Nunca cite números diferentes dos que já foram oferecidos na conversa.
 
       Conforme o momento da conversa (siga sempre a tactic_note do Motor):
       - Se o cliente está ACEITANDO um acordo já proposto, confirme o fechamento de forma calorosa e

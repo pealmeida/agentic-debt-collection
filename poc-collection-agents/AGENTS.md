@@ -27,6 +27,7 @@ poc-collection-agents/
 │       ├── openrouter.js        ← wrapper OpenRouter (callOpenRouter, parseJSON)
 │       ├── security.js          ← detectores: token flooding, prompt injection, jailbreak, leakage
 │       ├── tools.js             ← mocks MCP determinísticos (debt_status, políticas, CDC)
+│       ├── conversation.js      ← memória de conversa: parse da oferta anterior + escada de desconto
 │       └── agents/
 │           ├── nlu.js           ← Escuta Ativa (intenção + sentimento)
 │           ├── motor.js         ← Motor de Acordo (cálculo + RAG)
@@ -75,6 +76,7 @@ poc-collection-agents/
 | Self-correction config | `config/harness_negotiator.yaml` → `state_graph.self_correction` |
 | Eval scenarios | `config/harness_negotiator.yaml` → `evals.scenarios` |
 | Dados mock (dívida, alçadas) | `api/lib/tools.js` |
+| Memória de conversa + escada de desconto | `api/lib/conversation.js` (parse da oferta anterior, `countPriorOffers`, `tieredDiscount`) |
 | Invariantes de qualidade | `docs/golden_principles.md` |
 
 ---

@@ -1,5 +1,6 @@
 import { callOpenRouter, parseJSON } from '../openrouter.js'
 import { getDebtStatus, getDiscountPolicy, calculateAmortization } from '../tools.js'
+import { lastAgentText, parseProposalFromText, countPriorOffers, tieredDiscount } from '../conversation.js'
 
 const MOTOR_SCHEMA = {
   type: 'object',
@@ -32,9 +33,21 @@ const MOTOR_SCHEMA = {
  * GP-12: never trusts LLM arithmetic — `calculateAmortization()` is the source of truth.
  */
 export async function run(state, { agent, openrouter }) {
-  const { detected_intent, sentiment, nlu_summary, message, debt_data } = state
+  const { detected_intent, sentiment, nlu_summary, message, debt_data, history = [] } = state
   const toolCalls = []
   const ragContext = []
+
+  // Recover the proposal already offered in the conversation so a follow-up
+  // (acceptance / promise to pay) confirms the SAME numbers instead of silently
+  // re-deriving a fresh default. Keeps the agreement consistent across turns.
+  const previousAgentText = lastAgentText(history)
+  const previousProposal = parseProposalFromText(previousAgentText)
+  const isAcceptance = /acei[tç]|fechad|combinad|de acordo|pagamento/i.test(detected_intent || '')
+  const isPromise = /promessa|adiament|futur/i.test(detected_intent || '')
+
+  // How many concrete offers were already shown in this conversation. Drives the
+  // two-tier negotiation ladder: open small to attract, concede more to retain.
+  const priorOfferCount = countPriorOffers(history)
 
   const debtResult = getDebtStatus(debt_data)
   toolCalls.push({
@@ -78,6 +91,8 @@ export async function run(state, { agent, openrouter }) {
     detected_intent,
     sentiment,
     message_summary: nlu_summary || message,
+    previous_proposal: previousProposal,
+    last_agent_message: previousAgentText ? previousAgentText.slice(0, 400) : null,
   })
 
   const { content, usage, latencyMs } = await callOpenRouter({
@@ -105,11 +120,44 @@ export async function run(state, { agent, openrouter }) {
   // If LLM says we can propose, recompute math with hard safety bounds.
   // GP-12: never trust LLM arithmetic; clamp discount rate to alçada max.
   if (parsed.can_propose && parsed.proposal) {
-    const rawDiscount = Number(parsed.proposal.discount_rate) || policy.max_discount
+    // On acceptance / promise, the customer is responding to a proposal already
+    // on the table — honor those exact terms (GP: consistency across the
+    // conversation) rather than whatever the LLM re-derived this turn.
+    const carryForward = (isAcceptance || isPromise) && previousProposal
+    // Derive the prior discount from its total — but only trust it when it lands
+    // in a sane band. A "discount" of ~0 means we parsed the *original* amount by
+    // mistake (the offer text often mentions R$ 1.200 before the discounted R$ 840),
+    // so fall back to the policy/LLM rate instead of confirming a 0%-off deal.
+    const derivedDiscount = carryForward && previousProposal.total != null
+      ? 1 - previousProposal.total / debt.total_amount
+      : null
+    const prevDiscount = derivedDiscount != null && derivedDiscount > 0.01 ? derivedDiscount : null
+
+    // Two-tier discount ladder (anchored on the full price). The alçada max is
+    // the *final* concession, never the opening bid: lead with a smaller
+    // discount to attract, then escalate to the ceiling on a follow-up turn so
+    // we don't lose the deal. Installments stay flexible (chosen above).
+    const ceiling = policy.max_discount
+    const ladderDiscount = tieredDiscount(priorOfferCount, ceiling)
+
+    const rawDiscount = prevDiscount ?? ladderDiscount
     const safeDiscount = Math.max(0, Math.min(rawDiscount, policy.max_discount))
     const wasClamped = rawDiscount > policy.max_discount
 
-    const rawInstallments = Math.round(Number(parsed.proposal.installments)) || 3
+    toolCalls.push({
+      name: 'negotiation:discount_tier',
+      payload: JSON.stringify({
+        stage: prevDiscount ? 'carry_forward' : priorOfferCount === 0 ? 'tier1_attract' : 'tier2_retain',
+        prior_offers: priorOfferCount,
+        ceiling,
+        applied: safeDiscount,
+      }),
+      status: 200,
+    })
+
+    const rawInstallments = carryForward && previousProposal.installments
+      ? previousProposal.installments
+      : Math.round(Number(parsed.proposal.installments)) || 3
     const safeInstallments = Math.max(1, Math.min(rawInstallments, 12))
 
     const amortResult = calculateAmortization({

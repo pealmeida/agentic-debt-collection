@@ -659,6 +659,50 @@ try {
   globalThis.fetch = originalFetch
 }
 
+// ─── Conversation memory + negotiation ladder ────────────────────────────────
+
+section('Conversation: proposal parser')
+{
+  const { parseProposalFromText, lastAgentText, countPriorOffers } = await import('../api/lib/conversation.js')
+
+  const full = parseProposalFromText('Fica R$ 840,00 em 6x de R$ 140,00 sem juros')
+  assert('parses total from offer text', full?.total === 840)
+  assert('parses installments from offer text', full?.installments === 6)
+  assert('parses installment value from offer text', full?.installment_value === 140)
+
+  const avista = parseProposalFromText('Podemos fechar por R$ 840,00 à vista')
+  assert('à vista implies single installment', avista?.installments === 1)
+
+  // The installment value must follow the "Nx" token, not an earlier "de R$ ..."
+  // used to anchor on the original price.
+  const contrast = parseProposalFromText('consegui liberar de R$ 1.200 por R$ 840,00 em 3x de R$ 280,00')
+  assert('ignores anchor price, takes the real deal total', contrast?.total === 840)
+  assert('takes installment value after the plan token', contrast?.installment_value === 280)
+
+  assert('non-offer text yields null', parseProposalFromText('Oi, tudo bem?') === null)
+
+  assert(
+    'lastAgentText returns most recent ai turn',
+    lastAgentText([{ role: 'user', text: 'a' }, { role: 'ai', text: 'oferta' }]) === 'oferta',
+  )
+
+  const hist = [
+    { role: 'user', text: 'quero negociar' },
+    { role: 'ai', text: 'R$ 1.020,00 em 3x de R$ 340,00' },
+    { role: 'user', text: 'ainda está caro' },
+  ]
+  assert('counts only ai turns carrying a proposal', countPriorOffers(hist) === 1)
+}
+
+section('Negotiation: two-tier discount ladder')
+{
+  const { tieredDiscount } = await import('../api/lib/conversation.js')
+  assert('first offer opens at ~half the ceiling (attract)', tieredDiscount(0, 0.3) === 0.15)
+  assert('follow-up concedes the full ceiling (retain)', tieredDiscount(1, 0.3) === 0.3)
+  assert('further turns stay capped at ceiling', tieredDiscount(3, 0.3) === 0.3)
+  assert('opening tier floored at 5% for low ceilings', tieredDiscount(0, 0.08) === 0.05)
+}
+
 // ─── Summary ─────────────────────────────────────────────────────────────────
 
 console.log(`\n── Summary ──`)
