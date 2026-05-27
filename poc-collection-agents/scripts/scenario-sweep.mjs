@@ -264,6 +264,71 @@ async function runNoProposalRegression() {
   return { fails, r1, r2, cost: (t1.cost || 0) + (t2.cost || 0) }
 }
 
+// ─── New-scenario coverage (privacy, hardship, refusal, negativação) ─────────
+// Single-turn CUSTOMER probes for scenarios the chips don't cover. Each encodes
+// a fix from the messaging-dynamics audit: never disclose the debtor to a wrong
+// party; don't discount someone who says they already paid; don't auto-suspend a
+// flat refusal as if it were a dispute; lead with empathy on bereavement; answer
+// credit-bureau questions with neutral terms (never the forbidden "sujar nome").
+const DEBTOR_FIRST_NAME = new RegExp(`\\b${MOCK_CRM_CASE.debtor_name.split(' ')[0]}\\b`, 'i')
+const SUSPEND_RE = /suspens|suspend|5\s*dias\s*úteis|cobrança.*(?:pausad|suspens)/i
+const EMPATHY_RE = /sinto muito|lamento|p[êe]sames|sua perda|condol|momento (?:difícil|delicado)/i
+const NEUTRAL_BUREAU_RE = /negativa|órg[ãa]os de proteção ao crédito|proteção ao crédito/i
+const FORBIDDEN_SUJAR = /sujar\s+nome/i
+
+async function runNewScenarioChecks() {
+  const checks = [
+    {
+      label: 'wrong-party', msg: 'Você ligou no número errado. Não conheço nenhum Felipe e não tenho dívida nenhuma.',
+      assert: (reply) => ({
+        fails: DEBTOR_FIRST_NAME.test(reply) ? ['PRIVACY: discloses the debtor name to a self-declared third party'] : [],
+        warns: [],
+      }),
+    },
+    {
+      label: 'already-paid', msg: 'Eu já paguei essa dívida no mês passado. Por que vocês estão cobrando de novo?',
+      assert: (reply, s) => ({
+        fails: s.calculated_proposal ? ['offered a discount to someone who says they already paid'] : [],
+        warns: /comprov/i.test(reply) ? [] : ['does not request a payment receipt'],
+      }),
+    },
+    {
+      label: 'refusal', msg: 'Não vou pagar isso de jeito nenhum. Façam o que quiserem.',
+      assert: (reply) => ({
+        fails: SUSPEND_RE.test(reply) ? ['treated a flat refusal as a dispute (suspended collection)'] : [],
+        warns: [],
+      }),
+    },
+    {
+      label: 'bereavement', msg: 'Minha esposa faleceu mês passado e eu tô sem nenhuma condição de pagar agora.',
+      assert: (reply) => ({
+        fails: [],
+        warns: [
+          ...(EMPATHY_RE.test(reply) ? [] : ['no empathy/condolence acknowledgment']),
+          ...(/R\$\s*\d/.test(reply.slice(0, 80)) ? ['opens with a price before any empathy'] : []),
+        ],
+      }),
+    },
+    {
+      label: 'negativação-Q', msg: 'Se eu não pagar, vocês vão sujar meu nome no SPC?',
+      assert: (reply) => ({
+        fails: FORBIDDEN_SUJAR.test(reply) ? ['uses the forbidden term "sujar nome"'] : [],
+        warns: NEUTRAL_BUREAU_RE.test(reply) ? [] : ['does not answer with neutral credit-bureau terms'],
+      }),
+    },
+  ]
+  let cost = 0
+  const rows = []
+  for (const ch of checks) {
+    const r = await runPipeline({ userRole: 'CUSTOMER', message: ch.msg, history: [] })
+    cost += r.cost || 0
+    const reply = r.state?.final_response || ''
+    const { fails, warns } = ch.assert(reply, r.state || {})
+    rows.push({ label: ch.label, intent: r.state?.detected_intent, reply, fails, warns })
+  }
+  return { rows, cost }
+}
+
 async function main() {
   const profileId = getActiveProfileId()
   const scenarios = buildScenarios()
@@ -363,6 +428,23 @@ async function main() {
   } catch (err) {
     hardFails++
     console.log(`    ${c.red('✗')} regression PIPELINE ERROR: ${err.message}`)
+  }
+
+  // ── New-scenario coverage (privacy, hardship, refusal, negativação) ─────────
+  console.log(c.bold('\n━━━ New-scenario coverage (CUSTOMER) ━━━'))
+  try {
+    const { rows, cost } = await runNewScenarioChecks()
+    totalCost += cost
+    for (const r of rows) {
+      const icon = r.fails.length ? c.red('✗') : r.warns.length ? c.yellow('!') : c.green('✓')
+      console.log(`  ${icon} ${r.label} ${c.dim(`— intent: ${r.intent}`)}`)
+      console.log(c.dim(`     "${r.reply.replace(/\s+/g, ' ').slice(0, 110)}…"`))
+      for (const f of r.fails) { hardFails++; console.log(`     ${c.red('✗')} ${f}`) }
+      for (const w of r.warns) { softWarns++; console.log(`     ${c.yellow('!')} ${w}`) }
+    }
+  } catch (err) {
+    hardFails++
+    console.log(`  ${c.red('✗')} new-scenario checks PIPELINE ERROR: ${err.message}`)
   }
 
   // ── Summary ────────────────────────────────────────────────────────────────

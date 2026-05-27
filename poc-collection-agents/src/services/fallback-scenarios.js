@@ -58,7 +58,10 @@ function getLastAIMessage(history = []) {
 
 // ─── Scenario builders ───────────────────────────────────────────────────────
 
-function buildProposal({ total = 840, discount_rate = 0.3, installments = 3, installment_value = 280, desconto = '30%' }) {
+// Defaults to the OPENING tier of the two-tier ladder (≈half the 30% ceiling →
+// 15% / R$ 1.020 in 3x), matching the live Motor's first offer. The ceiling
+// (30% / R$ 840) is the concession reached on a follow-up turn, not the opener.
+function buildProposal({ total = 1020, discount_rate = 0.15, installments = 3, installment_value = 340, desconto = '15%' }) {
   return { total, discount_rate, desconto, installments, installment_value }
 }
 
@@ -90,7 +93,7 @@ const SCENARIOS = [
       complianceStatus: 'APROVADO',
       complianceRisk: 'BAIXO',
       response: userRole === 'CUSTOMER'
-        ? 'Perfeito, Felipe! Acordo fechado: R$ 840,00 em 3x de R$ 280,00. Vou te enviar o link do PIX da primeira parcela agora mesmo. 🎉\n\nQualquer dúvida, é só chamar aqui.'
+        ? 'Perfeito, Felipe! Acordo fechado: R$ 1.020,00 em 3x de R$ 340,00. Vou te enviar o link do PIX da primeira parcela agora mesmo. 🎉\n\nQualquer dúvida, é só chamar aqui.'
         : 'ACORDO ACEITO PELO CLIENTE.\n\nPRÓXIMOS PASSOS:\n1. Confirmação: "Vou registrar agora no sistema."\n2. Documentação: Enviar termo por e-mail/WhatsApp em até 5 min.\n3. Cobrança: Primeira parcela vence em 5 dias úteis.\n4. Follow-up: Agendar lembrete para dia anterior ao vencimento.',
     }),
   },
@@ -124,6 +127,107 @@ const SCENARIOS = [
     }),
   },
 
+  // ── Wrong party / third-party contact (privacy-critical) ─────────────────
+  {
+    id: 'contato_incorreto',
+    detect: (msg) => /n[úu]mero errado|lig(?:aram|ou|ação)\s+errad|não sou eu|nao sou eu|pessoa errada|não conheço (?:nenhum|ningu|esse|essa)|nao conheco/i.test(msg),
+    build: (userRole) => ({
+      intent: 'Contato Incorreto / Terceiro',
+      sentiment: 'neutro',
+      nluThought: 'Interlocutor indica número errado / não é o titular. Sem proposta; foco em privacidade.',
+      proposal: null,
+      motorThought: 'Contato incorreto: bloqueando proposta. Não expor dados do devedor a terceiro.',
+      motorTools: [{ name: 'verify_contact_identity', payload: '{ match: false }', status: 200 }],
+      motorRag: [RAG_CDC_42],
+      empatiaThought: `Pedindo desculpas a terceiro para persona [${userRole}], sem revelar dados da dívida.`,
+      guardiaoThought: 'L0:leakage✓ → L1:regex✓ → L2:clean → L3:llm-judge=APROVADO | Risco: BAIXO | Nenhum dado do titular exposto.',
+      guardiaoRag: [RAG_CDC_42],
+      complianceStatus: 'APROVADO',
+      complianceRisk: 'BAIXO',
+      response: userRole === 'CUSTOMER'
+        ? 'Poxa, peço desculpas pelo engano e pelo incômodo! 🙏 Obrigado por avisar. Posso remover este número do nosso cadastro para que você não receba mais contatos. Quer que eu faça isso?'
+        : 'TÁTICA SUGERIDA (CONTATO INCORRETO / TERCEIRO):\n\n1. CRÍTICO — PRIVACIDADE: NÃO confirme o nome do devedor nem qualquer dado da dívida a quem não é o titular (LGPD / CDC Art. 42).\n2. Postura: peça desculpas pelo transtorno.\n3. Ação: ofereça remover/atualizar o número no cadastro.\n4. Registro: marque o contato como "número incorreto" para revisão da base.',
+    }),
+  },
+
+  // ── Payment already made ──────────────────────────────────────────────────
+  {
+    id: 'pagamento_efetuado',
+    detect: (msg) => /já\s+paguei|ja\s+paguei|já\s+quit|ja\s+quit|paguei\s+(?:essa|a|isso|no)|já\s+foi\s+pag|ja\s+foi\s+pag/i.test(msg),
+    build: (userRole) => ({
+      intent: 'Pagamento Já Efetuado',
+      sentiment: 'ansioso',
+      nluThought: 'Cliente afirma que já pagou. Não nega a dívida; pede verificação. Sem proposta.',
+      proposal: null,
+      motorThought: 'Pagamento alegado: bloqueando proposta. Solicitar comprovante e suspender cobrança.',
+      motorTools: [
+        { name: 'get_debt_status', payload: "{ debt_id: 'D-9982' }", status: 200 },
+        { name: 'request_payment_proof', payload: '{ debt_id: "D-9982" }', status: 200 },
+      ],
+      motorRag: [{ source: 'manual_disputas.pdf', snippet: 'Pagamento alegado deve ser conciliado com o comprovante antes de nova cobrança.' }],
+      empatiaThought: `Pedindo comprovante de pagamento para persona [${userRole}].`,
+      guardiaoThought: 'L0:leakage✓ → L1:regex✓ → L2:clean → L3:llm-judge=APROVADO | Risco: BAIXO | Tom respeitoso, pausa cobrança.',
+      guardiaoRag: [RAG_CDC_42],
+      complianceStatus: 'APROVADO',
+      complianceRisk: 'BAIXO',
+      response: userRole === 'CUSTOMER'
+        ? 'Entendo, Felipe, e peço desculpas pelo transtorno! Para resolver rápido, você pode me enviar o comprovante do pagamento (com a data e o meio usado)? Enquanto a gente verifica, a cobrança fica suspensa. 👍'
+        : 'TÁTICA SUGERIDA (PAGAMENTO JÁ EFETUADO):\n\n1. Acolhimento: reconheça o pagamento alegado, sem confrontar.\n2. Coleta: solicite o comprovante (data, valor e meio de pagamento).\n3. Ação: suspenda a cobrança até a conciliação.\n4. CRÍTICO: NÃO ofereça desconto nem trate como contestação de validade.',
+    }),
+  },
+
+  // ── Refusal to pay (no validity dispute) ──────────────────────────────────
+  {
+    id: 'recusa_pagamento',
+    detect: (msg) => /não\s+vou\s+pagar|nao\s+vou\s+pagar|não\s+pago\b|nao\s+pago\b|recuso\s+a?\s*pagar|fa[çc]am?\s+o\s+que\s+quiser/i.test(msg),
+    build: (userRole) => ({
+      intent: 'Recusa de Pagamento',
+      sentiment: 'agressivo',
+      nluThought: 'Cliente recusa pagar sem contestar a validade. Manter porta aberta sem pressão.',
+      proposal: buildProposal({}),
+      motorThought: 'Recusa de pagamento: manter oferta pela escada de concessão, sem pressão nem suspensão.',
+      motorTools: [
+        { name: 'get_debt_status', payload: "{ debt_id: 'D-9982' }", status: 200 },
+        { name: 'negotiation:discount_tier', payload: '{ stage: "tier1_attract", applied: 0.15 }', status: 200 },
+      ],
+      motorRag: [RAG_POLICY],
+      empatiaThought: `Acolhendo a recusa sem discutir para persona [${userRole}], oferta suave.`,
+      guardiaoThought: 'L0:leakage✓ → L1:regex✓ → L2:clean → L3:llm-judge=APROVADO | Risco: BAIXO | Sem coerção, oferta sem pressão.',
+      guardiaoRag: [RAG_CDC_42],
+      complianceStatus: 'APROVADO',
+      complianceRisk: 'BAIXO',
+      response: userRole === 'CUSTOMER'
+        ? 'Entendo, Felipe, e respeito a sua decisão. Só quero deixar uma porta aberta: se em algum momento fizer sentido, consigo uma condição especial — R$ 1.020,00, que dá para parcelar em 3x de R$ 340,00. Fico à disposição se quiser conversar, sem pressa. 🙂'
+        : 'TÁTICA SUGERIDA (RECUSA DE PAGAMENTO):\n\n1. NÃO discuta nem pressione; valide a posição do cliente.\n2. Diagnóstico: entenda o que impede o pagamento (capacidade x disposição).\n3. Oferta sem pressão: deixe a condição (R$ 1.020,00 em 3x de R$ 340,00) disponível para quando fizer sentido.\n4. CRÍTICO: NÃO trate como contestação nem suspenda a cobrança.',
+    }),
+  },
+
+  // ── Credit-bureau / consequences question ─────────────────────────────────
+  {
+    id: 'duvida_negativacao',
+    detect: (msg) => /\bspc\b|serasa|negativ|órg[ãa]os de proteção|orgaos de protecao|nome\s+(?:no|sujo|negativ)/i.test(msg),
+    build: (userRole) => ({
+      intent: 'Dúvida sobre Negativação / Consequências',
+      sentiment: 'ansioso',
+      nluThought: 'Cliente pergunta sobre consequências (negativação/SPC). Responder factual e sem pressão.',
+      proposal: buildProposal({}),
+      motorThought: 'Dúvida sobre negativação: responder de forma neutra e oferecer acordo como saída.',
+      motorTools: [
+        { name: 'get_debt_status', payload: "{ debt_id: 'D-9982' }", status: 200 },
+        { name: 'negotiation:discount_tier', payload: '{ stage: "tier1_attract", applied: 0.15 }', status: 200 },
+      ],
+      motorRag: [RAG_POLICY, RAG_CDC_42],
+      empatiaThought: `Resposta factual e neutra sobre negativação para persona [${userRole}].`,
+      guardiaoThought: 'L0:leakage✓ → L1:regex✓ → L2:clean → L3:llm-judge=APROVADO | Risco: BAIXO | Fato neutro, não usado como pressão.',
+      guardiaoRag: [RAG_CDC_42],
+      complianceStatus: 'APROVADO',
+      complianceRisk: 'BAIXO',
+      response: userRole === 'CUSTOMER'
+        ? 'Boa pergunta, Felipe! Sendo transparente: dívidas em atraso podem, sim, ser registradas nos órgãos de proteção ao crédito. A boa notícia é que dá para evitar isso resolvendo agora — consigo R$ 1.020,00, que você pode parcelar em 3x de R$ 340,00. Quer aproveitar para regularizar? 😊'
+        : 'TÁTICA SUGERIDA (DÚVIDA SOBRE NEGATIVAÇÃO):\n\n1. Responda com transparência e SEM ameaçar: a negativação é procedimento padrão para débitos em atraso.\n2. Linguagem neutra: use "negativação" / "órgãos de proteção ao crédito" — NUNCA "sujar nome".\n3. Pivot: enquadre o acordo (R$ 1.020,00 em 3x de R$ 340,00) como a forma de EVITAR a negativação.\n4. Compliance: nunca use a consequência como instrumento de pressão (CDC Art. 42).',
+    }),
+  },
+
   // ── Extreme difficulty: unemployment / lowball offer ─────────────────────
   {
     id: 'desemprego_extremo',
@@ -132,8 +236,8 @@ const SCENARIOS = [
       intent: 'Dificuldade Extrema / Proposta Fora de Alçada',
       sentiment: 'desesperado',
       nluThought: 'Cliente em dificuldade financeira extrema. Proposta abaixo da alçada permitida.',
-      proposal: buildProposal({ installments: 4, installment_value: 210 }),
-      motorThought: 'Proposta do cliente abaixo da alçada (alçada máx: 30%). Oferecendo teto + ampliando parcelas.',
+      proposal: buildProposal({ installments: 6, installment_value: 170 }),
+      motorThought: 'Proposta do cliente abaixo da alçada. Abrindo no 1º nível da escada (15%) + ampliando parcelas.',
       motorTools: [
         { name: 'get_debt_status', payload: "{ debt_id: 'D-9982' }", status: 200 },
         { name: 'get_politicas_desconto', payload: '{ days_overdue: 45 }', status: 200 },
@@ -146,8 +250,8 @@ const SCENARIOS = [
       complianceStatus: 'APROVADO',
       complianceRisk: 'BAIXO',
       response: userRole === 'CUSTOMER'
-        ? 'Felipe, entendo totalmente a situação difícil que você está passando. Eu queria muito poder aceitar o valor que você propôs, mas o sistema não me permite chegar lá.\n\nO máximo que consigo liberar é o desconto de 30% — o saldo cai para R$ 840,00 e posso estender para 4 parcelas de R$ 210,00, dando mais fôlego para o seu orçamento. Isso ajudaria neste momento?'
-        : 'PROPOSTA DO CLIENTE RECUSADA PELO MOTOR (fora da alçada).\n\nCONTRA-PROPOSTA SUGERIDA:\n1. Empatia: "Entendo a situação. Quero realmente te ajudar."\n2. Justificativa: "O sistema tem um limite que não consigo ultrapassar."\n3. Oferta Teto: R$ 840,00 em 4x de R$ 210,00.\n4. Argumento de Venda: "Aumentei o prazo em vez do desconto."\n5. Próximo passo: Confirmar capacidade de pagamento mensal antes de fechar.',
+        ? 'Felipe, entendo totalmente a situação difícil que você está passando. Eu queria muito poder aceitar o valor que você propôs, mas o sistema não me permite chegar lá.\n\nConsegui uma condição especial — o saldo cai para R$ 1.020,00 e posso estender para 6 parcelas de R$ 170,00, dando mais fôlego para o seu orçamento. Isso ajudaria neste momento?'
+        : 'PROPOSTA DO CLIENTE RECUSADA PELO MOTOR (fora da alçada).\n\nCONTRA-PROPOSTA SUGERIDA:\n1. Empatia: "Entendo a situação. Quero realmente te ajudar."\n2. Justificativa: "O sistema tem um limite que não consigo ultrapassar."\n3. Oferta de abertura: R$ 1.020,00 em 6x de R$ 170,00.\n4. Argumento de Venda: "Estendi bastante o prazo para caber no seu orçamento."\n5. Próximo passo: Confirmar capacidade de pagamento mensal antes de fechar.',
     }),
   },
 
@@ -162,8 +266,8 @@ const SCENARIOS = [
       intent: 'Pedido de Alongamento de Prazo',
       sentiment: 'ansioso',
       nluThought: 'Cliente solicita parcelamento estendido. Sentimento ansioso mas colaborativo.',
-      proposal: buildProposal({ installments: 5, installment_value: 168 }),
-      motorThought: 'Cliente pede mais parcelas. Mantendo desconto máximo + estendendo para 5x.',
+      proposal: buildProposal({ installments: 5, installment_value: 204 }),
+      motorThought: 'Cliente pede mais parcelas. Estendendo para 5x mantendo o desconto da abertura.',
       motorTools: [
         { name: 'get_debt_status', payload: "{ debt_id: 'D-9982' }", status: 200 },
         { name: 'calculate_amortization', payload: '{ principal: 1200, discount: 0.3, installments: 5 }', status: 200 },
@@ -175,8 +279,8 @@ const SCENARIOS = [
       complianceStatus: 'APROVADO',
       complianceRisk: 'BAIXO',
       response: userRole === 'CUSTOMER'
-        ? 'Claro, Felipe! Consegui estender o parcelamento. Mantendo o desconto de 30%, ficamos com R$ 840,00 em 5x de R$ 168,00 sem juros.\n\nEssas parcelas cabem no seu orçamento mensal? 😊'
-        : 'TÁTICA SUGERIDA (PEDIDO DE MAIS PARCELAS):\n\n1. Concessão: "Posso estender o prazo, mantendo o desconto."\n2. Oferta: R$ 840,00 em 5x de R$ 168,00 sem juros.\n3. Fechamento: "Esse valor cabe no seu orçamento mensal?"\n4. Plano B: Se pedir 6x, ofereça R$ 140/mês.',
+        ? 'Claro, Felipe! Consegui estender o parcelamento. Com o desconto aplicado, ficamos com R$ 1.020,00 em 5x de R$ 204,00 sem juros.\n\nEssas parcelas cabem no seu orçamento mensal? 😊'
+        : 'TÁTICA SUGERIDA (PEDIDO DE MAIS PARCELAS):\n\n1. Concessão: "Posso estender o prazo, mantendo o desconto."\n2. Oferta: R$ 1.020,00 em 5x de R$ 204,00 sem juros.\n3. Fechamento: "Esse valor cabe no seu orçamento mensal?"\n4. Plano B: Se pedir 6x, ofereça R$ 170/mês.',
     }),
   },
 
@@ -201,7 +305,7 @@ const SCENARIOS = [
       complianceStatus: 'APROVADO',
       complianceRisk: 'BAIXO',
       response: userRole === 'CUSTOMER'
-        ? 'Sem problema, Felipe! Vou agendar aqui um lembrete para o dia que você combinou. Posso já te enviar o boleto de R$ 840,00 (3x de R$ 280,00) com vencimento alinhado com seu recebimento?\n\nDessa forma, fica tudo organizado.'
+        ? 'Sem problema, Felipe! Vou agendar aqui um lembrete para o dia que você combinou. Posso já te enviar o boleto de R$ 1.020,00 (3x de R$ 340,00) com vencimento alinhado com seu recebimento?\n\nDessa forma, fica tudo organizado.'
         : 'TÁTICA SUGERIDA (PROMESSA DE PAGAMENTO):\n\n1. Boa-fé: "Vamos agendar para a data que combinou."\n2. Compromisso registrado: Pré-aceitar a proposta no sistema com vencimento custom.\n3. Lembrete: Ativar reminder para 1 dia antes da data prometida.\n4. Hedge: "Se algo mudar, me chama com antecedência."',
     }),
   },
@@ -254,8 +358,8 @@ const SCENARIOS = [
       complianceStatus: 'APROVADO',
       complianceRisk: 'BAIXO',
       response: userRole === 'CUSTOMER'
-        ? 'Entendo perfeitamente, Felipe! Consegui aplicar nosso desconto máximo: o valor cai para R$ 840,00 e podemos dividir em 3x de R$ 280,00 sem juros.\n\nFica melhor para o seu bolso? 😊'
-        : 'TÁTICA SUGERIDA (PEDIDO PADRÃO):\n\n1. Empatia: "Entendo o momento — vamos encontrar uma saída."\n2. Oferta Máxima: R$ 840,00 (30% off) em 3x de R$ 280,00.\n3. Argumento: "Sem juros, e parcelas no mesmo valor da original."\n4. Fechamento: "Esse formato cabe no orçamento?"',
+        ? 'Entendo perfeitamente, Felipe! Consegui uma condição especial: o valor cai para R$ 1.020,00 e podemos dividir em 3x de R$ 340,00 sem juros.\n\nFica melhor para o seu bolso? 😊'
+        : 'TÁTICA SUGERIDA (PEDIDO PADRÃO):\n\n1. Empatia: "Entendo o momento — vamos encontrar uma saída."\n2. Oferta de abertura: R$ 1.020,00 (15% off) em 3x de R$ 340,00.\n3. Argumento: "Sem juros, parcelas que cabem no bolso."\n4. Fechamento: "Esse formato cabe no orçamento?"\n5. Margem: se hesitar, há espaço para evoluir o desconto numa próxima rodada.',
     }),
   },
 ]
