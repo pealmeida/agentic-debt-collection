@@ -552,6 +552,27 @@ async function runGuardiao(stateOverrides) {
   assert('null intent escalates to L3 (safe default)', llmWasCalled === true)
 }
 
+// 6. Charged sentiment forces L3 even when the intent label looks benign —
+//    covers low-confidence misclassifications where the tone is the real signal.
+{
+  const { llmWasCalled } = await runGuardiao({ detected_intent: 'Pedido de desconto', sentiment: 'desesperado' })
+  assert('desperate sentiment forces L3 LLM call', llmWasCalled === true)
+}
+{
+  const { llmWasCalled } = await runGuardiao({ detected_intent: 'Pedido de desconto', sentiment: 'agressivo' })
+  assert('aggressive sentiment forces L3 LLM call', llmWasCalled === true)
+}
+{
+  // "Dificuldade Extrema" intent is now high-risk (out-of-alçada / coercion-prone).
+  const { llmWasCalled } = await runGuardiao({ detected_intent: 'Dificuldade Extrema / Proposta Fora de Alçada', sentiment: 'neutro' })
+  assert('Dificuldade Extrema intent escalates to L3', llmWasCalled === true)
+}
+{
+  // Calm collaborative low-risk turn still fast-paths (no needless LLM cost).
+  const { llmWasCalled } = await runGuardiao({ detected_intent: 'Pedido de desconto', sentiment: 'colaborativo' })
+  assert('calm low-risk turn still skips L3 (fast-path preserved)', llmWasCalled === false)
+}
+
 // ─── Mock CRM seed (powers the "Aguardando CRM" UI fix) ───────────────────────
 
 section('CRM: mock case fixture')

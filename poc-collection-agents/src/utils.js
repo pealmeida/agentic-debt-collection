@@ -8,6 +8,18 @@ export function formatTime(ts) {
   return new Intl.DateTimeFormat('pt-BR', { hour: '2-digit', minute: '2-digit' }).format(new Date(ts))
 }
 
+/**
+ * Monotonic message-id generator. Replaces `Date.now()` / `Date.now() + 1`,
+ * which can collide when a user message and the AI reply (or two rapid turns)
+ * land in the same millisecond — producing duplicate React keys and breaking
+ * `latestAIMessageId` (a Math.max over ids). A simple incrementing counter is
+ * always unique and strictly increasing, so "latest" ordering still holds.
+ */
+let _messageIdSeq = 0
+export function nextMessageId() {
+  return ++_messageIdSeq
+}
+
 export function getOrCreateSessionId() {
   try {
     let id = sessionStorage.getItem('poc_session_id')

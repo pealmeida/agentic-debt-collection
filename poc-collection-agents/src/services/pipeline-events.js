@@ -7,7 +7,7 @@
  */
 
 import { AGENT_ID_MAP } from '../constants.js'
-import { saveObservabilityEntry } from '../utils.js'
+import { saveObservabilityEntry, nextMessageId } from '../utils.js'
 import { formatSecurityThreat } from './orchestrator.js'
 
 function snapshotTurnTrace(turnTraceRef) {
@@ -274,7 +274,7 @@ export function applyPipelineEvent(event, ctx) {
         workflow_trace: workflowTrace,
       })
 
-      setMessages((prev) => [...prev, { id: Date.now() + 1, role: 'ai', ts: Date.now() + 1, text: response }])
+      setMessages((prev) => [...prev, { id: nextMessageId(), role: 'ai', ts: Date.now(), text: response }])
       break
     }
 
@@ -284,9 +284,9 @@ export function applyPipelineEvent(event, ctx) {
       setMessages((prev) => [
         ...prev,
         {
-          id: Date.now() + 1,
+          id: nextMessageId(),
           role: 'ai',
-          ts: Date.now() + 1,
+          ts: Date.now(),
           text: data.user_message || 'Sua mensagem foi bloqueada pelo sistema de segurança.',
           isSecurityBlock: true,
         },
@@ -299,9 +299,9 @@ export function applyPipelineEvent(event, ctx) {
       setMessages((prev) => [
         ...prev,
         {
-          id: Date.now() + 1,
+          id: nextMessageId(),
           role: 'ai',
-          ts: Date.now() + 1,
+          ts: Date.now(),
           text: 'Ocorreu um erro ao processar sua mensagem. Por favor, tente novamente.',
         },
       ])

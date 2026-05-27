@@ -28,11 +28,21 @@ const HIGH_RISK_INTENT_PATTERNS = [
   /jur[ií]dic/i,
   /contesta/i,
   /fraude/i,
+  /dificuldade\s+extrema/i, // out-of-alçada / desperate debtor — coercion-prone
+  /fora\s+de\s+al[çc]ada/i,
+  /reclama/i,                // product/service complaint can escalate
 ]
 
 function isHighRiskIntent(detectedIntent) {
   if (!detectedIntent) return true // unclassified = play safe, run L3
   return HIGH_RISK_INTENT_PATTERNS.some((re) => re.test(detectedIntent))
+}
+
+// Charged sentiment forces the L3 judge even if the intent label looks benign —
+// this also covers low-confidence misclassifications where the intent is wrong
+// but the emotional tone (and thus the coercion risk) is real.
+function isHighRiskSentiment(sentiment) {
+  return /agress|desesper/i.test(sentiment || '')
 }
 
 /**
@@ -62,7 +72,7 @@ function isHighRiskIntent(detectedIntent) {
  * Returns APROVADO or REJEITADO with a feedback string for the Empatia re-write.
  */
 export async function run(state, { agent, openrouter }) {
-  const { draft_response, detected_intent, user_role, security_threats = [], security_severity } = state
+  const { draft_response, detected_intent, sentiment, user_role, security_threats = [], security_severity } = state
   const toolCalls = []
   const ragContext = []
 
@@ -140,7 +150,7 @@ export async function run(state, { agent, openrouter }) {
   // all say BAIXO risk. The semantic LLM judge is only valuable when there's
   // ambiguity to resolve; for unambiguously safe turns it adds 700-1300ms of
   // pure overhead. Risky intents and any threat signal always escalate to L3.
-  const highRisk = isHighRiskIntent(detected_intent)
+  const highRisk = isHighRiskIntent(detected_intent) || isHighRiskSentiment(sentiment)
   if (!hasUpstreamThreats && !highRisk) {
     toolCalls.push({
       name: 'security:llm_judge',

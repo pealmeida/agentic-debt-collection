@@ -12,6 +12,7 @@
     "preview": "vite preview",
     "test": "node scripts/smoke-test.mjs",
     "eval:journey": "node scripts/journey-eval.mjs",
+    "eval:sweep": "node scripts/scenario-sweep.mjs",
     "demo:fallback": "node scripts/fallback-demo.mjs",
     "test:browser": "node scripts/browser-prompt-test.mjs"
   },

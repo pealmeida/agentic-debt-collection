@@ -45,7 +45,7 @@ poc-collection-agents/
 │   └── components/
 │       ├── ChatMessage.jsx      ← bolha de mensagem (todas as variantes)
 │       ├── ProgressIndicator.jsx← indicador (...) no chat enquanto processa
-│       ├── ModeSwitchBar.jsx    ← tabs Cliente / Engineer
+│       ├── ModeSwitchBar.jsx    ← tabs Visão Cliente / Visão Operador
 │       ├── PipelineMiniBar.jsx  ← progresso compacto da pipeline (acima do chat)
 │       ├── SidebarPanel.jsx     ← painel direito (Grafo / Inspetor / Cockpit)
 │       ├── InspectorPanel.jsx   ← terminal dark de Thought/Tools/RAG

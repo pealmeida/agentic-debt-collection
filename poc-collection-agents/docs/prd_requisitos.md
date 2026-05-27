@@ -80,7 +80,7 @@ O JSON traficado entre os nós do grafo conterá:
 |----|-----------|
 | RNF01 | Harness declarativo em `config/harness_negotiator.yaml`, versionável em Git |
 | RNF02 | POC executável localmente via `npm run dev` (LLM mockado na UI) |
-| RNF03 | Guardrails do Guardião bloqueiam padrões: `sujar nome`, `processo`, `penhora`, `polícia` |
+| RNF03 | Guardrails do Guardião bloqueiam padrões: `sujar nome`, `processo`, `penhora`, `polícia`, `delegacia`, `prisão`, `ameaça`, `coação` |
 | RNF04 | Deploy compatível com Vercel (Vite/React) |
 
 ## 7. Critérios de Aceite

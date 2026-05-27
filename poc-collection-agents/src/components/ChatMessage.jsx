@@ -1,5 +1,66 @@
+import { useState, useEffect, useRef } from 'react'
 import { User, Bot, Clock, Check, Copy, CheckCheck, FileText, Target, AlertTriangle, ShieldAlert, Zap } from 'lucide-react'
 import { formatTime } from '../utils.js'
+
+/**
+ * Progressive "typewriter" reveal for the latest AI reply.
+ *
+ * The backend can't stream the answer token-by-token: the Guardião must approve
+ * the full draft AFTER Empatia (GP-01), so the text only exists once the turn is
+ * done. This is a client-side reveal of that finished text — purely a
+ * perceived-responsiveness affordance, capped at ~1.4s regardless of length.
+ *
+ * - Animates once per mounted message (startedRef guard), so the frequent parent
+ *   re-renders during a turn don't restart or jump it.
+ * - Honors prefers-reduced-motion by showing the full text immediately.
+ * - `onTick` keeps the scroll pinned to the bottom as the bubble grows.
+ */
+function useTypewriter(fullText, enabled, onTick) {
+  const [shown, setShown] = useState(enabled ? '' : fullText)
+  const startedRef = useRef(false)
+
+  useEffect(() => {
+    if (!enabled) {
+      setShown(fullText)
+      return
+    }
+    if (startedRef.current) return
+    startedRef.current = true
+
+    const prefersReduced = window.matchMedia('(prefers-reduced-motion: reduce)').matches
+    if (prefersReduced || !fullText) {
+      setShown(fullText)
+      return
+    }
+
+    const len = fullText.length
+    const totalFrames = Math.max(1, Math.round(Math.min(len * 12, 1400) / 16))
+    const charsPerFrame = Math.max(1, Math.ceil(len / totalFrames))
+    let i = 0
+    const id = setInterval(() => {
+      i = Math.min(len, i + charsPerFrame)
+      setShown(fullText.slice(0, i))
+      onTick?.()
+      if (i >= len) clearInterval(id)
+    }, 16)
+    return () => clearInterval(id)
+  }, [enabled, fullText, onTick])
+
+  return shown
+}
+
+/**
+ * While revealing, an unclosed `**` (bold marker mid-stream) would otherwise show
+ * literal asterisks until its pair arrives. Hide the dangling marker; the text
+ * re-bolds the instant the closing `**` is revealed. No-op once the count is even.
+ */
+function hideDanglingBold(text) {
+  if (!text) return text
+  const count = (text.match(/\*\*/g) || []).length
+  if (count % 2 === 0) return text
+  const idx = text.lastIndexOf('**')
+  return text.slice(0, idx) + text.slice(idx + 2)
+}
 
 function renderMessageText(text) {
   if (!text?.includes('**')) return text
@@ -41,7 +102,12 @@ export function ChatMessage({
   onCopyMessage,
   onExportTrace,
   onPixCta,
+  onReveal,
 }) {
+  // Hook must run unconditionally, before the system-message early return.
+  const animate = msg.role === 'ai' && isLatestAI && !msg.isSecurityBlock
+  const displayText = useTypewriter(msg.text, animate, onReveal)
+
   if (msg.role === 'system') {
     return (
       <div className="w-full text-center py-2 text-xs font-semibold text-slate-500 uppercase tracking-widest">
@@ -100,7 +166,7 @@ export function ChatMessage({
               Proposta Recusada
             </div>
           )}
-          {renderMessageText(msg.text)}
+          {renderMessageText(hideDanglingBold(displayText))}
 
           {showPixCta && (
             <div className="mt-3 pt-3 border-t border-emerald-100">

@@ -2,7 +2,7 @@ import { useState, useEffect, useRef, useCallback } from 'react'
 import { Bot, Menu, Send, Sparkles } from 'lucide-react'
 
 import { MODES, SUGGESTIONS, INITIAL_AGENT_STATE } from './constants.js'
-import { getOrCreateSessionId, downloadJSON } from './utils.js'
+import { getOrCreateSessionId, downloadJSON, nextMessageId } from './utils.js'
 import { runPipeline } from './services/orchestrator.js'
 import { applyPipelineEvent } from './services/pipeline-events.js'
 
@@ -37,17 +37,33 @@ export default function App() {
   const sessionId = useRef(getOrCreateSessionId())
   const chatScrollRef = useRef(null)
   const turnTraceRef = useRef(null)
+  // Whether the user is pinned near the bottom. When they scroll up to read
+  // history, we stop yanking them back down on new messages / pipeline ticks.
+  const isAtBottomRef = useRef(true)
 
-  // Auto-scroll on new messages or active-agent change
-  const scrollToBottom = useCallback(() => {
+  // Auto-scroll on new messages or active-agent change — but only if the user
+  // hasn't scrolled up. `smooth=false` is used for the rapid typewriter ticks.
+  const scrollToBottom = useCallback((smooth = true) => {
+    if (!isAtBottomRef.current) return
     const prefersReducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches
+    const behavior = smooth && !prefersReducedMotion ? 'smooth' : 'auto'
     window.requestAnimationFrame(() => {
       chatScrollRef.current?.scrollTo({
         top: chatScrollRef.current.scrollHeight,
-        behavior: prefersReducedMotion ? 'auto' : 'smooth',
+        behavior,
       })
     })
   }, [])
+
+  const handleScroll = useCallback(() => {
+    const el = chatScrollRef.current
+    if (!el) return
+    isAtBottomRef.current = el.scrollHeight - el.scrollTop - el.clientHeight < 120
+  }, [])
+
+  // Stable instant-scroll passed to each message so the typewriter reveal keeps
+  // the latest reply pinned to the bottom as it grows (respects scroll-up).
+  const handleReveal = useCallback(() => scrollToBottom(false), [scrollToBottom])
 
   useEffect(() => {
     scrollToBottom()
@@ -62,7 +78,7 @@ export default function App() {
 
   // Reset state when persona changes
   useEffect(() => {
-    setMessages([{ ...INITIAL_MESSAGES[mode], ts: Date.now() }])
+    setMessages([{ ...INITIAL_MESSAGES[mode], id: nextMessageId(), ts: Date.now() }])
     setAgentState({ ...INITIAL_AGENT_STATE, personaMode: mode })
   }, [mode])
 
@@ -103,7 +119,9 @@ export default function App() {
     const textToSend = customText || inputText
     if (!textToSend.trim() || isProcessing) return
 
-    setMessages((prev) => [...prev, { id: Date.now(), role: 'user', ts: Date.now(), text: textToSend }])
+    // Sending always pins to the bottom so the user sees their message + reply.
+    isAtBottomRef.current = true
+    setMessages((prev) => [...prev, { id: nextMessageId(), role: 'user', ts: Date.now(), text: textToSend }])
     setInputText('')
     setIsProcessing(true)
 
@@ -213,6 +231,7 @@ export default function App() {
           <div
             id="main-chat"
             ref={chatScrollRef}
+            onScroll={handleScroll}
             aria-live="polite"
             aria-relevant="additions"
             className="flex-1 min-h-0 overflow-y-auto p-4 sm:p-6 space-y-5 bg-slate-50/60 overscroll-contain touch-pan-y scroll-pb-6"
@@ -230,6 +249,7 @@ export default function App() {
                 onCopyMessage={handleCopyMessage}
                 onExportTrace={handleExportTrace}
                 onPixCta={handlePixCta}
+                onReveal={handleReveal}
               />
             ))}
 

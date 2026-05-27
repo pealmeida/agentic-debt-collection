@@ -199,8 +199,18 @@ export default async function handler(req, res) {
           feedback: state.compliance_feedback,
         })
       } else {
+        // Self-corrections exhausted and the draft still fails compliance.
+        // GP-01 integrity: never ship a REJECTED draft — it may carry coercive
+        // or CDC-forbidden phrasing (a draft rejected at L1/regex literally
+        // contains a forbidden term). Discard it and hand off with a safe,
+        // neutral message. The shipped text is compliant by construction, so
+        // APROVADO is truthful for what's sent; we flag the escalation.
+        state.draft_response = user_role === 'AGENT'
+          ? 'ESCALAR PARA SUPERVISOR: não foi possível gerar automaticamente uma resposta em conformidade após múltiplas tentativas. Conduza este caso manualmente.'
+          : 'Quero muito te ajudar a resolver isso da melhor forma. Vou encaminhar seu atendimento para um especialista que dará sequência, tudo bem?'
         state.compliance_status = 'APROVADO'
-        state.draft_response = (state.draft_response || '') + '\n\n[Nota: Texto revisado pelo Guardião de Compliance.]'
+        state.compliance_feedback = ''
+        state.escalated_to_human = true
         approved = true
       }
     }
@@ -218,6 +228,7 @@ export default async function handler(req, res) {
       detected_intent: state.detected_intent,
       sentiment: state.sentiment,
       self_corrections: selfCorrectionAttempts,
+      escalated_to_human: !!state.escalated_to_human,
       observability: {
         total_tokens: totalTokens,
         total_latency_ms: totalLatency,

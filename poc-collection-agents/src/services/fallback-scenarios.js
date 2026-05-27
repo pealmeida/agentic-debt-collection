@@ -90,7 +90,7 @@ const SCENARIOS = [
       complianceStatus: 'APROVADO',
       complianceRisk: 'BAIXO',
       response: userRole === 'CUSTOMER'
-        ? 'Perfeito, João! Acordo fechado: R$ 840,00 em 3x de R$ 280,00. Vou te enviar o link do PIX da primeira parcela agora mesmo. 🎉\n\nQualquer dúvida, é só chamar aqui.'
+        ? 'Perfeito, Felipe! Acordo fechado: R$ 840,00 em 3x de R$ 280,00. Vou te enviar o link do PIX da primeira parcela agora mesmo. 🎉\n\nQualquer dúvida, é só chamar aqui.'
         : 'ACORDO ACEITO PELO CLIENTE.\n\nPRÓXIMOS PASSOS:\n1. Confirmação: "Vou registrar agora no sistema."\n2. Documentação: Enviar termo por e-mail/WhatsApp em até 5 min.\n3. Cobrança: Primeira parcela vence em 5 dias úteis.\n4. Follow-up: Agendar lembrete para dia anterior ao vencimento.',
     }),
   },
@@ -119,7 +119,7 @@ const SCENARIOS = [
       complianceStatus: 'APROVADO',
       complianceRisk: 'MÉDIO',
       response: userRole === 'CUSTOMER'
-        ? 'Sinto muito que você se sinta assim, João. Nossa intenção é apenas te ajudar a encontrar uma solução amigável. Gostaria de entender melhor o que aconteceu e ver como podemos resolver isso da forma mais tranquila possível para você?'
+        ? 'Sinto muito que você se sinta assim, Felipe. Nossa intenção é apenas te ajudar a encontrar uma solução amigável. Gostaria de entender melhor o que aconteceu e ver como podemos resolver isso da forma mais tranquila possível para você?'
         : 'ALERTA DE COMPLIANCE (CLIENTE AGRESSIVO / AMEAÇA JURÍDICA)\n\nTÁTICA SUGERIDA:\n1. Desescalada imediata: Mantenha tom neutro e empático, jamais discuta.\n2. Script Legal: "Compreendemos sua insatisfação. Nosso contato tem o objetivo de propor um acordo amigável."\n3. Ação: NÃO ofereça desconto neste momento — primeiro acalme o cliente.\n4. Documentação: Registre tudo no histórico para auditoria.\n5. Escalação: Se persistir, encaminhe ao supervisor.',
     }),
   },
@@ -146,7 +146,7 @@ const SCENARIOS = [
       complianceStatus: 'APROVADO',
       complianceRisk: 'BAIXO',
       response: userRole === 'CUSTOMER'
-        ? 'João, entendo totalmente a situação difícil que você está passando. Eu queria muito poder aceitar R$ 500,00, mas o sistema não me permite chegar a esse valor.\n\nO máximo que consigo liberar é o desconto de 30% — o saldo cai para R$ 840,00 e posso estender para 4 parcelas de R$ 210,00, dando mais fôlego para o seu orçamento. Isso ajudaria neste momento?'
+        ? 'Felipe, entendo totalmente a situação difícil que você está passando. Eu queria muito poder aceitar o valor que você propôs, mas o sistema não me permite chegar lá.\n\nO máximo que consigo liberar é o desconto de 30% — o saldo cai para R$ 840,00 e posso estender para 4 parcelas de R$ 210,00, dando mais fôlego para o seu orçamento. Isso ajudaria neste momento?'
         : 'PROPOSTA DO CLIENTE RECUSADA PELO MOTOR (fora da alçada).\n\nCONTRA-PROPOSTA SUGERIDA:\n1. Empatia: "Entendo a situação. Quero realmente te ajudar."\n2. Justificativa: "O sistema tem um limite que não consigo ultrapassar."\n3. Oferta Teto: R$ 840,00 em 4x de R$ 210,00.\n4. Argumento de Venda: "Aumentei o prazo em vez do desconto."\n5. Próximo passo: Confirmar capacidade de pagamento mensal antes de fechar.',
     }),
   },
@@ -175,7 +175,7 @@ const SCENARIOS = [
       complianceStatus: 'APROVADO',
       complianceRisk: 'BAIXO',
       response: userRole === 'CUSTOMER'
-        ? 'Claro, João! Consegui estender o parcelamento. Mantendo o desconto de 30%, ficamos com R$ 840,00 em 5x de R$ 168,00 sem juros.\n\nEssas parcelas cabem no seu orçamento mensal? 😊'
+        ? 'Claro, Felipe! Consegui estender o parcelamento. Mantendo o desconto de 30%, ficamos com R$ 840,00 em 5x de R$ 168,00 sem juros.\n\nEssas parcelas cabem no seu orçamento mensal? 😊'
         : 'TÁTICA SUGERIDA (PEDIDO DE MAIS PARCELAS):\n\n1. Concessão: "Posso estender o prazo, mantendo o desconto."\n2. Oferta: R$ 840,00 em 5x de R$ 168,00 sem juros.\n3. Fechamento: "Esse valor cabe no seu orçamento mensal?"\n4. Plano B: Se pedir 6x, ofereça R$ 140/mês.',
     }),
   },
@@ -201,7 +201,7 @@ const SCENARIOS = [
       complianceStatus: 'APROVADO',
       complianceRisk: 'BAIXO',
       response: userRole === 'CUSTOMER'
-        ? 'Sem problema, João! Vou agendar aqui um lembrete para o dia que você combinou. Posso já te enviar o boleto de R$ 840,00 (3x de R$ 280,00) com vencimento alinhado com seu recebimento?\n\nDessa forma, fica tudo organizado.'
+        ? 'Sem problema, Felipe! Vou agendar aqui um lembrete para o dia que você combinou. Posso já te enviar o boleto de R$ 840,00 (3x de R$ 280,00) com vencimento alinhado com seu recebimento?\n\nDessa forma, fica tudo organizado.'
         : 'TÁTICA SUGERIDA (PROMESSA DE PAGAMENTO):\n\n1. Boa-fé: "Vamos agendar para a data que combinou."\n2. Compromisso registrado: Pré-aceitar a proposta no sistema com vencimento custom.\n3. Lembrete: Ativar reminder para 1 dia antes da data prometida.\n4. Hedge: "Se algo mudar, me chama com antecedência."',
     }),
   },
@@ -227,7 +227,7 @@ const SCENARIOS = [
       complianceStatus: 'APROVADO',
       complianceRisk: 'BAIXO',
       response: userRole === 'CUSTOMER'
-        ? 'João, entendo sua preocupação e sua contestação é totalmente válida. Vou registrar agora e nossa equipe vai analisar o histórico completo do seu contrato em até 5 dias úteis.\n\nVocê receberá um e-mail com toda a documentação. Pode me enviar mais detalhes do que você acredita estar incorreto?'
+        ? 'Felipe, entendo sua preocupação e sua contestação é totalmente válida. Vou registrar agora e nossa equipe vai analisar o histórico completo do seu contrato em até 5 dias úteis.\n\nVocê receberá um e-mail com toda a documentação. Pode me enviar mais detalhes do que você acredita estar incorreto?'
         : 'TÁTICA SUGERIDA (CONTESTAÇÃO DE DÍVIDA):\n\n1. Acolhimento: "Sua contestação é válida e será analisada."\n2. Registro: Abrir ticket de disputa no sistema agora.\n3. SLA: Informar prazo de 5 dias úteis para resposta.\n4. Coleta: "Pode me detalhar o que está incorreto?"\n5. CRÍTICO: NÃO insistir em cobrança enquanto disputa está aberta.',
     }),
   },
@@ -254,7 +254,7 @@ const SCENARIOS = [
       complianceStatus: 'APROVADO',
       complianceRisk: 'BAIXO',
       response: userRole === 'CUSTOMER'
-        ? 'Entendo perfeitamente, João! Consegui aplicar nosso desconto máximo: o valor cai para R$ 840,00 e podemos dividir em 3x de R$ 280,00 sem juros.\n\nFica melhor para o seu bolso? 😊'
+        ? 'Entendo perfeitamente, Felipe! Consegui aplicar nosso desconto máximo: o valor cai para R$ 840,00 e podemos dividir em 3x de R$ 280,00 sem juros.\n\nFica melhor para o seu bolso? 😊'
         : 'TÁTICA SUGERIDA (PEDIDO PADRÃO):\n\n1. Empatia: "Entendo o momento — vamos encontrar uma saída."\n2. Oferta Máxima: R$ 840,00 (30% off) em 3x de R$ 280,00.\n3. Argumento: "Sem juros, e parcelas no mesmo valor da original."\n4. Fechamento: "Esse formato cabe no orçamento?"',
     }),
   },

@@ -41,23 +41,23 @@ active_profile: balanced-cost
 #   claude_xml     → suggest XML thinking blocks (reserved for future Anthropic profile)
 
 model_profiles:
-  # ── Balanced cost — cost-efficient four-vendor production blend ────────────
+  # ── Balanced cost — cost-efficient two-vendor production blend ─────────────
   # Tuned for latency + cost + tone, in that order. Per-agent rationale:
   #   • NLU      : tiny JSON classifier — Gemini Flash Lite ($0.10/$0.40, ~1s)
   #   • Motor    : strict JSON, T=0; math is recomputed deterministically by
   #                calculateAmortization (GP-12) — Mistral Small ($0.15/$0.60, ~1.5s)
   #   • Empatia  : free-text persona writer; gemini_flash hint enforces concise
-  #                tone — GPT-4o-mini ($0.15/$0.60). Capped at EMPATIA_MAX_TOKENS
-  #                in api/lib/agents/empatia.js (~3-4s).
+  #                tone — Gemini Flash Lite ($0.10/$0.40, ~2s decode). Capped at
+  #                EMPATIA_MAX_TOKENS in api/lib/agents/empatia.js.
   #   • Guardião : LLM-as-judge AFTER 3 deterministic layers (leakage + regex +
-  #                threat-context) already screen 95% of cases. Mistral Small is
+  #                threat-context) already screen most cases. Mistral Small is
   #                ~5x faster on OR than GPT-4o-mini at the same JSON quality —
   #                measured ~700ms vs 1-5s tail. ($0.15/$0.60)
-  # Measured: ~7s happy turn, ~$0.00075/turn. Vendor diversity preserved
-  # (Gemini + Mistral + OpenAI).
+  # Measured (eval:sweep): ~4-6s happy turn, ~$0.0005/turn. Two vendors
+  # (Gemini + Mistral) — single-vendor would lose the diversity demo.
   balanced-cost:
-    label: "Balanced Cost (4-vendor blend)"
-    description: "Latency- and cost-optimal multi-vendor mix. ~$0.0008/turn, ~6-8s end-to-end, fits Vercel maxDuration=30s with comfortable headroom."
+    label: "Balanced Cost (Gemini + Mistral)"
+    description: "Latency- and cost-optimal two-vendor mix (Gemini Flash Lite + Mistral Small). ~$0.0005/turn, ~4-6s end-to-end, fits Vercel maxDuration=30s with comfortable headroom."
     provider: openrouter
     agents:
       agente_escuta_nlu:
@@ -236,7 +236,12 @@ agents:
       Analise a mensagem do devedor e retorne um JSON com:
       - detected_intent: intenção principal (ex: "Pedido de desconto / Dificuldade Financeira",
         "Ameaça Jurídica / Risco Legal Elevado", "Dificuldade Extrema / Proposta Fora de Alçada",
-        "Promessa Futura / Adiamento", "Reclamação do Produto", "Curiosidade / Dúvida")
+        "Promessa Futura / Adiamento", "Contestação de Dívida / Cobrança Indevida",
+        "Aceitação de Acordo / Pagamento", "Reclamação do Produto", "Curiosidade / Dúvida")
+        Quando o cliente nega dever, alega cobrança indevida ou diz que nunca contratou,
+        classifique como "Contestação de Dívida / Cobrança Indevida".
+        Quando o cliente concorda com uma proposta já apresentada (ex: "aceito", "fechado",
+        "pode mandar o boleto"), classifique como "Aceitação de Acordo / Pagamento".
       - sentiment: um de [colaborativo, agressivo, desesperado, ansioso, neutro]
       - confidence: número entre 0 e 1
       - summary: resumo da mensagem em 1 frase neutra
@@ -279,6 +284,16 @@ agents:
       3. Se a proposta do cliente estiver fora da alçada, ofereça a proposta no teto máximo.
       4. Em tactic_note, escreva uma instrução concisa para o Agente Empatia sobre como apresentar.
       5. Prefira parcelas que caibam no orçamento: 3x para casos normais, 4-6x para dificuldades extremas.
+      6. Os valores (total, installment_value) são recalculados de forma determinística pelo sistema.
+         Foque em escolher discount_rate (≤ teto da alçada) e installments corretos; não se preocupe com os centavos exatos.
+      7. Quando can_propose=false, ainda assim preencha proposal com zeros (total=0, discount_rate=0, desconto="0%", installments=0, installment_value=0) e explique em reason_if_not.
+      8. Se o intento indicar ACEITAÇÃO de um acordo já apresentado (ex: "Aceitação de Acordo / Pagamento"),
+         mantenha can_propose=true e a MESMA proposta do histórico (não recalcule novos valores). Use tactic_note
+         para instruir o Empatia a CONFIRMAR o fechamento e encaminhar o boleto/PIX — sem reapresentar o desconto
+         como nova oferta.
+      9. Se o intento for "Promessa Futura / Adiamento", mantenha can_propose=true e a proposta. Apenas use
+         tactic_note para instruir o Empatia a reconhecer a data prometida e alinhar o vencimento a ela, sem
+         usar o desconto como gancho de pressão.
 
       Responda SOMENTE com JSON válido.
 
@@ -306,7 +321,19 @@ agents:
         * Tom profissional, direto, orientado à ação
         * Include alertas em CAPS quando há riscos de compliance
 
-      CRÍTICO: Nunca mencione "processo", "penhora", "sujar nome", "polícia" ou termos coercitivos.
+      Conforme o momento da conversa (siga sempre a tactic_note do Motor):
+      - Se o cliente está ACEITANDO um acordo já proposto, confirme o fechamento de forma calorosa e
+        encaminhe o próximo passo (boleto/PIX). NÃO reapresente o desconto como se fosse uma nova oferta.
+      - Se o cliente fez uma PROMESSA de pagamento futuro, reconheça a data combinada e ofereça alinhar o
+        vencimento a ela. NÃO repita o desconto como forma de pressão.
+
+      CRÍTICO — termos proibidos na SAÍDA: o Guardião rejeita o texto automaticamente
+      se qualquer uma destas palavras aparecer, inclusive em modo AGENT e mesmo quando
+      você está apenas descrevendo a postura do cliente:
+      "processo", "penhora", "sujar nome", "polícia", "delegacia", "prisão", "ameaça", "coação".
+      Para relatar risco jurídico sem usar os termos vetados, use linguagem neutra —
+      ex.: "cliente sinalizou que pode acionar a Justiça" ou "menção a medidas legais",
+      nunca "ameaça de processo". Jamais use linguagem coercitiva.
       Se calculated_proposal estiver ausente por falta de contexto de dívida, não invente valor, desconto, parcelas ou vencimento; peça o contexto CRM necessário de forma objetiva.
       Se receber correction_feedback, reescreva completamente evitando os problemas apontados.
 
@@ -394,10 +421,15 @@ agents:
       - Art. 71 CDC: Coação, constrangimento físico ou moral na cobrança é crime.
 
       Critérios de REJEIÇÃO:
-      1. Qualquer linguagem coercitiva, ameaçadora ou vexatória
-      2. Insinuações sobre consequências jurídicas como pressão (e não fatos neutros)
+      1. Qualquer linguagem coercitiva, ameaçadora ou vexatória DIRIGIDA ao devedor
+      2. Insinuações sobre consequências jurídicas usadas como pressão (e não fatos neutros)
       3. Tom agressivo ou humilhante
       4. Promessas falsas ou enganosas
+
+      NÃO rejeite quando o texto (especialmente em modo AGENT/operador) apenas DESCREVE de
+      forma neutra a postura do cliente — ex.: registrar que o cliente pretende acionar a
+      Justiça é um fato operacional, não uma ameaça do agente. Avalie a intenção: o agente
+      está pressionando o devedor, ou apenas documentando o caso?
 
       Retorne:
       - status: APROVADO ou REJEITADO
@@ -443,7 +475,7 @@ state_graph:
 
 # ─── Eval Scenarios ───────────────────────────────────────────────────────────
 # Inspired by the OpenAI Harness Engineering approach: treat evals as first-class artifacts.
-# Run via: npm run eval (see docs/eval_harness.md)
+# Run via: npm run eval:journey (multi-profile) or npm run eval:sweep (all demo chips). See docs/eval_harness.md
 
 evals:
   scenarios:

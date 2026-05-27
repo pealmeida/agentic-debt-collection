@@ -115,7 +115,7 @@ Empatia is the only free-text agent (no JSON schema to constrain the decode). It
 | Model | Median decode | $/turn (Empatia only) | Tone quality (subjective)* |
 |---|---|---|---|
 | `openai/gpt-4o-mini` (prior) | ~3.4s | $0.00018 | Polished, slightly long |
-| `google/gemini-2.5-flash-lite` (current) | ~1.9s | $0.00012 | Empathic, more concise — observed: *"Oi João, entendo perfeitamente sua situação..."* |
+| `google/gemini-2.5-flash-lite` (current) | ~1.9s | $0.00012 | Empathic, more concise — observed: *"Oi Felipe, entendo perfeitamente sua situação..."* |
 | `qwen/qwen3.6-flash` (specialist) | ~13s, 3000+ tok output | $0.0030 | Verbose, runaway generation — rejected |
 
 \* Tone quality was assessed against the criteria in `agente_empatia_copywriter.system_prompt` (CUSTOMER persona: 3 short paragraphs, 1 emoji, open question). Both Gemini and GPT-4o-mini meet all criteria; Gemini is more concise.
