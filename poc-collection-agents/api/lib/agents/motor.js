@@ -191,7 +191,11 @@ export async function run(state, { agent, openrouter }) {
   return {
     patch: {
       calculated_proposal: parsed.can_propose ? parsed.proposal : null,
-      motor_tactic_note: parsed.tactic_note,
+      // Strip figures from the note: the LLM writes it BEFORE the deterministic
+      // ladder/recompute, so any R$/%/installments it cites can contradict
+      // calculated_proposal. The note guides tone only; numbers come from the
+      // authoritative proposal (GP-12).
+      motor_tactic_note: parsed.can_propose ? stripFigures(parsed.tactic_note) : parsed.tactic_note,
       motor_reason: parsed.reason_if_not,
       debt_info: debt,
       policy_info: policy,
@@ -206,4 +210,20 @@ export async function run(state, { agent, openrouter }) {
       latency_ms: latencyMs,
     },
   }
+}
+
+/**
+ * Removes monetary values, discount percentages and installment counts from the
+ * Motor's tactic_note so a stale LLM estimate can never contradict the
+ * deterministically recomputed calculated_proposal in the customer-facing copy.
+ * The note is internal (tone guidance only), so dropping the figures is safe.
+ */
+function stripFigures(note) {
+  if (!note) return note
+  return String(note)
+    .replace(/R\$\s*[\d.]+(?:,\d{2})?/gi, 'o valor da proposta')
+    .replace(/\d+\s*%/g, 'o desconto definido')
+    .replace(/\b\d{1,2}\s*x\b/gi, 'as parcelas definidas')
+    .replace(/\s{2,}/g, ' ')
+    .trim()
 }
