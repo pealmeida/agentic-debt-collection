@@ -220,6 +220,50 @@ function buildScenarios() {
 
 function fmt(n, w) { return String(n).padStart(w) }
 
+// ─── Multi-turn no-proposal regression ───────────────────────────────────────
+// The chip sweep runs every prompt as a FRESH turn, so it can't catch the
+// failure mode that only shows on a FOLLOW-UP no-proposal turn: Empatia either
+// (a) collapses out of the operator bullet format into a "Prezado(a)…" debtor
+// letter, or (b) parrots the previous turn instead of addressing the new
+// objection. This 2-turn AGENT sequence (legal threat → debt dispute, history
+// carried forward) locks both behaviors down and asserts the dispute turn is
+// actually differentiated from the legal-threat turn.
+const LETTER_OPENER = /^\s*(prezad|car[oa]\b|ol[áa]\b|sr[a]?\.?\s)/i
+const OPERATOR_STRUCTURE = /t[áa]tica|argumento|^\s*\d+[.)]|^\s*[•*-]\s/im
+const DISPUTE_TERMS = /contesta|indevid|n[ãa]o\s+contrat|disputa|verifica/i
+
+function normalizeReply(s) {
+  return (s || '').toLowerCase().replace(/[^a-z0-9áàâãéêíóôõúç]+/gi, ' ').trim()
+}
+
+async function runNoProposalRegression() {
+  const t1msg = 'Cliente está gritando, xingando e ameaçando chamar advogado.'
+  const t2msg = 'Cliente alega cobrança indevida e diz que nunca contratou o produto.'
+
+  const t1 = await runPipeline({ userRole: 'AGENT', message: t1msg, history: [] })
+  const history = [
+    { role: 'user', text: t1msg },
+    { role: 'ai', text: t1.state?.final_response || '' },
+  ]
+  const t2 = await runPipeline({ userRole: 'AGENT', message: t2msg, history })
+
+  const r1 = t1.state?.final_response || ''
+  const r2 = t2.state?.final_response || ''
+  const fails = []
+
+  // (1) Operator format must hold on BOTH no-proposal turns.
+  for (const [turn, r] of [['turn1', r1], ['turn2', r2]]) {
+    if (LETTER_OPENER.test(r)) fails.push(`${turn}: collapsed into a debtor letter ("${r.trim().slice(0, 24)}…") — AGENT must stay in operator bullet format`)
+    if (!OPERATOR_STRUCTURE.test(r)) fails.push(`${turn}: missing operator structure (TÁTICA/ARGUMENTO/bullets)`)
+  }
+  // (2) Anti-parroting: the dispute turn must not echo the legal-threat turn.
+  if (normalizeReply(r1) === normalizeReply(r2)) fails.push('turn2 is identical to turn1 (parroting across turns)')
+  // (3) Differentiation: the dispute turn must actually address the contestation.
+  if (!DISPUTE_TERMS.test(r2)) fails.push('turn2 (debt dispute) does not address the contestation — reads like the legal-threat reply')
+
+  return { fails, r1, r2, cost: (t1.cost || 0) + (t2.cost || 0) }
+}
+
 async function main() {
   const profileId = getActiveProfileId()
   const scenarios = buildScenarios()
@@ -301,6 +345,24 @@ async function main() {
     console.log(c.dim(`    reply: "${reply}${reply.length === 200 ? '…' : ''}"`))
     for (const f of fails) console.log(`    ${c.red('✗')} ${f}`)
     for (const w of warns) console.log(`    ${c.yellow('!')} ${w}`)
+  }
+
+  // ── Multi-turn no-proposal regression ──────────────────────────────────────
+  console.log(c.bold('\n━━━ Multi-turn no-proposal regression (AGENT: legal threat → debt dispute) ━━━'))
+  try {
+    const regr = await runNoProposalRegression()
+    totalCost += regr.cost
+    console.log(c.dim(`    turn1: "${regr.r1.replace(/\s+/g, ' ').slice(0, 120)}…"`))
+    console.log(c.dim(`    turn2: "${regr.r2.replace(/\s+/g, ' ').slice(0, 120)}…"`))
+    if (regr.fails.length) {
+      hardFails += regr.fails.length
+      for (const f of regr.fails) console.log(`    ${c.red('✗')} ${f}`)
+    } else {
+      console.log(`    ${c.green('✓')} operator format held on both turns, no parroting, dispute differentiated`)
+    }
+  } catch (err) {
+    hardFails++
+    console.log(`    ${c.red('✗')} regression PIPELINE ERROR: ${err.message}`)
   }
 
   // ── Summary ────────────────────────────────────────────────────────────────
