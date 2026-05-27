@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef, useCallback } from 'react'
 import { Bot, Menu, Send, Sparkles } from 'lucide-react'
 
-import { MODES, SUGGESTIONS, INITIAL_AGENT_STATE } from './constants.js'
+import { MODES, SUGGESTIONS, INITIAL_AGENT_STATE, MOCK_CRM_CASE } from './constants.js'
 import { getOrCreateSessionId, downloadJSON, nextMessageId } from './utils.js'
 import { runPipeline } from './services/orchestrator.js'
 import { applyPipelineEvent } from './services/pipeline-events.js'
@@ -12,11 +12,13 @@ import { ProgressIndicator } from './components/ProgressIndicator.jsx'
 import { SidebarPanel } from './components/SidebarPanel.jsx'
 import { ChatMessage } from './components/ChatMessage.jsx'
 
+const CLIENT_FIRST_NAME = MOCK_CRM_CASE.debtor_name.split(' ')[0]
+
 const INITIAL_MESSAGES = {
   CUSTOMER: {
     id: 1,
     role: 'ai',
-    text: 'Olá! Sou a assistente de negociação. Envie sua mensagem e, quando houver contexto de dívida no CRM, calculo uma proposta dentro da política.',
+    text: `Oi, ${CLIENT_FIRST_NAME}! 👋 Sou seu assistente de negociação e estou aqui para te ajudar a colocar tudo em dia com tranquilidade, do jeito que couber no seu bolso. Me conta um pouco da sua situação que a gente encontra a melhor saída juntos.`,
   },
   AGENT: {
     id: 1,
